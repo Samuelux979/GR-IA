@@ -1,0 +1,28 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Data (too large for git)
+src/data/RecipeNLG.csv
+src/data/etl_progress.json
+src/data/*.csv
+
+# Local model cache (downloaded automatically at runtime)
+models/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Environment
+.env
