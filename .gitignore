@@ -25,5 +25,6 @@ models/
 Thumbs.db
 .DS_Store
 
-# Environment
+# Environment (credenciales locales - usar .env.example como plantilla)
 .env
+.env.local
