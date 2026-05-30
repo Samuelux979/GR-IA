@@ -1,5 +1,6 @@
 """
-Embed — batch embedding generation using sentence-transformers.
+Generacion de embeddings con sentence-transformers (all-MiniLM-L6-v2).
+El modelo se descarga una vez y queda cacheado en models/.
 """
 
 import logging
@@ -12,47 +13,39 @@ from src.config import EMBEDDING_MODEL_NAME, EMBED_BATCH_SIZE, MODELS_DIR
 
 logger = logging.getLogger(__name__)
 
-_model: SentenceTransformer | None = None
-
-# Suppress unrelated FutureWarning from sentence-transformers internals
 warnings.filterwarnings("ignore", message=".*get_sentence_embedding_dimension.*", category=FutureWarning)
+
+_model: SentenceTransformer | None = None
 
 
 def get_model() -> SentenceTransformer:
-    """Lazy-load the embedding model (singleton). Uses local cache to avoid HF requests."""
+    """Carga el modelo de embeddings (singleton). Usa cache local si existe."""
     global _model
     if _model is None:
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        logger.info("Loading embedding model '%s'...", EMBEDDING_MODEL_NAME)
+        logger.info("Cargando modelo de embeddings '%s'...", EMBEDDING_MODEL_NAME)
         try:
-            # Load from local cache — no internet needed after first download
             _model = SentenceTransformer(
                 EMBEDDING_MODEL_NAME,
                 cache_folder=str(MODELS_DIR),
                 local_files_only=True,
             )
         except Exception:
-            # First run: download and cache locally
-            logger.info("Local cache not found, downloading model...")
+            logger.info("Cache local no encontrada, descargando modelo...")
             _model = SentenceTransformer(
                 EMBEDDING_MODEL_NAME,
                 cache_folder=str(MODELS_DIR),
             )
-        logger.info("Model loaded. Dimension: %d", _model.get_embedding_dimension())
+        logger.info("Modelo cargado. Dimension: %d", _model.get_embedding_dimension())
     return _model
 
 
 def embed_texts(texts: list[str]) -> np.ndarray:
-    """
-    Encode a list of strings into embeddings.
-
-    Returns ndarray of shape (len(texts), EMBEDDING_DIMENSION).
-    """
+    """Codifica una lista de textos y devuelve un array de embeddings normalizados."""
     model = get_model()
-    embeddings = model.encode(
+    return model.encode(
         texts,
         batch_size=EMBED_BATCH_SIZE,
         show_progress_bar=False,
-        normalize_embeddings=True,  # cosine-ready
+        normalize_embeddings=True,
     )
-    return embeddings

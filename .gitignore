@@ -8,9 +8,10 @@ dist/
 build/
 
 # Data (too large for git)
-src/data/RecipeNLG.csv
-src/data/etl_progress.json
 src/data/*.csv
+src/data/*.parquet
+src/data/etl_progress.json
+src/data/sr_legacy/
 
 # Local model cache (downloaded automatically at runtime)
 models/

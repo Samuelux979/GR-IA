@@ -1,11 +1,12 @@
 """
-Transform — validate, clean, and build parent/child documents from raw CSV rows.
+Transforma cada fila del DataFrame de Food.com en un RecipeDocument
+listo para insertar en PostgreSQL.
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -13,100 +14,89 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RecipeDocument:
-    """Validated recipe ready for loading."""
-    title: str
-    ingredients: list[str]
-    ner: list[str]
-    link: str
-    source: str
-    # The semantic text that will be embedded (child chunk)
-    chunk_text: str
+    title:       str
+    ingredients: list
+    ner:         list
+    category:    str
+    calories:    float
+    protein_g:   float
+    fat_g:       float
+    carbs_g:     float
+    fiber_g:     float
+    chunk_text:  str
 
 
 @dataclass
 class TransformResult:
-    """Output of one chunk transformation."""
-    documents: list[RecipeDocument] = field(default_factory=list)
-    rows_discarded: int = 0
+    documents:      list = field(default_factory=list)
+    rows_discarded: int  = 0
 
 
 def _sanitize(text: str) -> str:
-    """Remove NUL bytes and other characters PostgreSQL rejects."""
-    return text.replace("\x00", "").replace("\u0000", "")
+    return text.replace("\x00", "").replace(" ", " ")
 
 
-def _safe_parse_json(raw: str) -> list[str] | None:
-    """Parse a JSON-encoded list string, return None on failure."""
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [
-                _sanitize(str(item)).strip()
-                for item in parsed
-                if _sanitize(str(item)).strip()
-            ]
-        return None
-    except (json.JSONDecodeError, TypeError):
-        return None
+def _to_list(val) -> list:
+    if isinstance(val, (list, np.ndarray)):
+        return [_sanitize(str(v).strip()) for v in val if str(v).strip()]
+    return []
 
 
-def _build_chunk_text(title: str, ner: list[str], directions: list[str]) -> str:
-    """
-    Build a single semantic string for embedding.
+def _build_ingredients(quantities: list, parts: list) -> list:
+    """Combina cantidades y nombres: ["1 cup"] + ["flour"] -> ["1 cup flour"]."""
+    empty = {"", "none", "nan"}
+    result = []
+    for i, name in enumerate(parts):
+        qty  = quantities[i] if i < len(quantities) else ""
+        qty  = qty if qty.lower() not in empty else ""
+        line = f"{qty} {name}".strip() if qty else name
+        result.append(line)
+    return result
 
-    Format chosen to maximize retrieval quality: the title and normalised
-    ingredient list give the bi-encoder context, and the directions give
-    the procedural detail.
-    """
-    ner_str = ", ".join(ner)
-    steps = " ".join(
-        f"Step {i}: {step.strip()}" for i, step in enumerate(directions, 1)
-    )
-    return f"Recipe: {title}. Ingredients: {ner_str}. {steps}"
+
+def _build_chunk_text(title: str, ner: list, steps: list) -> str:
+    """Construye el texto semantico que se vectorizara."""
+    ner_str   = ", ".join(ner)
+    steps_str = " ".join(f"Step {i}: {s}" for i, s in enumerate(steps, 1))
+    return f"Recipe: {title}. Ingredients: {ner_str}. {steps_str}"
 
 
 def transform_chunk(df: pd.DataFrame) -> TransformResult:
-    """Validate and transform one chunk DataFrame into RecipeDocuments."""
+    """Valida y transforma un chunk del DataFrame en RecipeDocuments."""
     result = TransformResult()
 
     for _, row in df.iterrows():
-        title = row.get("title")
-        if not isinstance(title, str) or not title.strip():
+        title = str(row.get("Name", "")).strip()
+        if not title:
             result.rows_discarded += 1
             continue
 
-        ingredients = _safe_parse_json(row.get("ingredients", ""))
-        directions = _safe_parse_json(row.get("directions", ""))
-        ner = _safe_parse_json(row.get("NER", ""))
+        parts      = _to_list(row.get("RecipeIngredientParts"))
+        quantities = _to_list(row.get("RecipeIngredientQuantities"))
+        steps      = _to_list(row.get("RecipeInstructions"))
 
-        if not ingredients or len(ingredients) < 2:
+        if len(parts) < 2 or not steps:
             result.rows_discarded += 1
             continue
-        if not directions or len(directions) < 1:
-            result.rows_discarded += 1
-            continue
-        if not ner:
-            # Fallback: use raw ingredients as NER
-            ner = ingredients
 
-        # Normalise NER entries + sanitize
-        ner = [_sanitize(n).lower().strip() for n in ner]
-        title_clean = _sanitize(title).strip()
-        directions_clean = [_sanitize(d) for d in directions]
+        ner         = list(dict.fromkeys(p.lower() for p in parts if p))
+        ingredients = _build_ingredients(quantities, parts)
 
-        chunk_text = _build_chunk_text(title_clean, ner, directions_clean)
+        def _float(col: str) -> float:
+            v = row.get(col, 0.0)
+            return float(v) if v is not None and str(v) != "nan" else 0.0
 
-        result.documents.append(
-            RecipeDocument(
-                title=title_clean,
-                ingredients=[_sanitize(i) for i in ingredients],
-                ner=ner,
-                link=_sanitize(row.get("link", "") or ""),
-                source=_sanitize(row.get("source", "") or ""),
-                chunk_text=chunk_text,
-            )
-        )
+        result.documents.append(RecipeDocument(
+            title       = _sanitize(title),
+            ingredients = ingredients,
+            ner         = ner,
+            category    = _sanitize(str(row.get("RecipeCategory") or "")),
+            calories    = _float("Calories"),
+            protein_g   = _float("ProteinContent"),
+            fat_g       = _float("FatContent"),
+            carbs_g     = _float("CarbohydrateContent"),
+            fiber_g     = _float("FiberContent"),
+            chunk_text  = _build_chunk_text(_sanitize(title), ner, steps),
+        ))
 
     return result

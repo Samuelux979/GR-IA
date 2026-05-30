@@ -1,12 +1,11 @@
 """
-Load — batch insert recipes and chunks into PostgreSQL within a single transaction.
+Inserta recetas y chunks en PostgreSQL en una unica transaccion por batch.
 """
 
 import json
 import logging
 
 import numpy as np
-import psycopg2
 import psycopg2.extras
 
 from src.etl.transform import RecipeDocument
@@ -14,7 +13,8 @@ from src.etl.transform import RecipeDocument
 logger = logging.getLogger(__name__)
 
 SQL_INSERT_RECIPE = """
-    INSERT INTO recipes (title, ingredients, ner, link, source, etl_batch_id)
+    INSERT INTO recipes (title, ingredients, ner, category,
+                         calories, protein_g, fat_g, carbs_g, fiber_g, etl_batch_id)
     VALUES %s
     RETURNING id
 """
@@ -25,59 +25,41 @@ SQL_INSERT_CHUNK = """
 """
 
 
-def load_batch(
-    conn,
-    documents: list[RecipeDocument],
-    embeddings: np.ndarray,
-    batch_id: int,
-) -> int:
+def load_batch(conn, documents: list[RecipeDocument], embeddings: np.ndarray, batch_id: int) -> int:
     """
-    Insert a batch of recipes + their chunks in one transaction.
-
-    Returns the number of rows successfully inserted.
+    Inserta un batch de recetas y sus chunks en una transaccion.
+    Devuelve el numero de filas insertadas.
     """
     if not documents:
         return 0
 
     try:
         with conn.cursor() as cur:
-            # ── Insert parent recipes ─────────────────────────────────
             recipe_values = [
                 (
                     doc.title,
-                    json.dumps(doc.ingredients),
-                    json.dumps(doc.ner),
-                    doc.link,
-                    doc.source,
+                    json.dumps(doc.ingredients, ensure_ascii=False),
+                    json.dumps(doc.ner,         ensure_ascii=False),
+                    doc.category,
+                    doc.calories, doc.protein_g, doc.fat_g, doc.carbs_g, doc.fiber_g,
                     batch_id,
                 )
                 for doc in documents
             ]
 
-            result = psycopg2.extras.execute_values(
-                cur,
-                SQL_INSERT_RECIPE,
-                recipe_values,
-                template="(%s, %s::jsonb, %s::jsonb, %s, %s, %s)",
+            rows = psycopg2.extras.execute_values(
+                cur, SQL_INSERT_RECIPE, recipe_values,
+                template="(%s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)",
                 fetch=True,
             )
-            recipe_ids = [row[0] for row in result]
+            recipe_ids = [row[0] for row in rows]
 
-            # ── Insert child chunks ───────────────────────────────────
             chunk_values = [
-                (
-                    recipe_id,
-                    0,  # chunk_index (Phase 1: single chunk per recipe)
-                    doc.chunk_text,
-                    embeddings[i].tolist(),
-                )
+                (recipe_id, 0, doc.chunk_text, embeddings[i].tolist())
                 for i, (recipe_id, doc) in enumerate(zip(recipe_ids, documents))
             ]
-
             psycopg2.extras.execute_values(
-                cur,
-                SQL_INSERT_CHUNK,
-                chunk_values,
+                cur, SQL_INSERT_CHUNK, chunk_values,
                 template="(%s, %s, %s, %s::vector)",
             )
 
@@ -86,5 +68,5 @@ def load_batch(
 
     except Exception:
         conn.rollback()
-        logger.exception("Batch %d FAILED — rolled back.", batch_id)
+        logger.exception("Batch %d fallido, rollback.", batch_id)
         raise
