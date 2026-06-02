@@ -28,3 +28,12 @@ langchain-ollama==1.1.0             # pip install langchain-ollama==1.1.0
 
 # --- Procesamiento de imagen ----------------------------------------
 Pillow==12.2.0                      # pip install Pillow==12.2.0
+
+# --- Servidor web y API REST ----------------------------------------
+fastapi==0.136.3                    # pip install fastapi==0.136.3
+uvicorn[standard]==0.48.0           # pip install "uvicorn[standard]==0.48.0"
+python-multipart==0.0.29            # pip install python-multipart==0.0.29
+httpx==0.28.1                       # pip install httpx==0.28.1
+
+# --- Tests ----------------------------------------------------------
+pytest==9.0.3                       # pip install pytest==9.0.3

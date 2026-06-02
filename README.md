@@ -271,7 +271,122 @@ El sistema imprime cuatro bloques:
 
 ---
 
-## 7. Estructura del proyecto
+## 7. Demo Web (interfaz grafica y API)
+
+GR-IA expone una capa web que permite usar el sistema desde el navegador
+sin tener que abrir la terminal. Incluye una API REST documentada
+automaticamente y una UI minima para subir imagenes y ver resultados.
+
+### 7.1. Arranque del servidor
+
+```powershell
+python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+```
+
+Para desarrollo, con recarga automatica al cambiar el codigo:
+
+```powershell
+python -m uvicorn src.api.main:app --reload --port 8000
+```
+
+### 7.2. Acceso a la interfaz
+
+Una vez arrancado el servidor, abrir en el navegador:
+
+| URL | Contenido |
+|---|---|
+| http://localhost:8000/ | Interfaz grafica de la demo |
+| http://localhost:8000/docs | Documentacion OpenAPI/Swagger interactiva |
+| http://localhost:8000/health | Estado de las dependencias en JSON |
+
+### 7.3. Endpoints disponibles
+
+| Metodo | Ruta | Descripcion |
+|---|---|---|
+| `GET` | `/` | Sirve la pagina HTML de la demo |
+| `POST` | `/predict` | Recibe una imagen y devuelve ingredientes y recetas |
+| `POST` | `/save` | Persiste en la BD una receta generada por la IA |
+| `GET` | `/health` | Estado de PostgreSQL, Ollama y modelos |
+
+### 7.4. Uso de la API por linea de comandos
+
+Ejemplo de invocacion del endpoint principal con curl:
+
+```powershell
+curl -X POST -F "image=@foto.jpg" "http://localhost:8000/predict?top_k=3&generate=true"
+```
+
+Parametros disponibles:
+
+| Parametro | Tipo | Por defecto | Descripcion |
+|---|---|---|---|
+| `image` | file | requerido | Imagen JPEG / PNG / WebP (max 10 MB) |
+| `top_k` | int | 3 | Numero de recetas a recuperar (1-20) |
+| `generate` | bool | true | Generar tambien una receta original con IA |
+
+### 7.5. Esquema de la respuesta
+
+```json
+{
+  "ingredients": {
+    "main":          ["chicken"],
+    "secondary":     ["celery", "egg"],
+    "accompaniment": [],
+    "spices":        []
+  },
+  "recipes": [
+    {
+      "id": 12345,
+      "title": "Mom's Chicken Soup",
+      "category": "Chicken",
+      "ingredients": ["8 chicken legs", "..."],
+      "steps":       ["Prepara los ingredientes.", "..."],
+      "matches":     ["chicken", "celery"],
+      "score":    36,
+      "distance": 0.42,
+      "macros":   { "calories": 450, "protein_g": 32, ... }
+    }
+  ],
+  "ai_recipe": {
+    "title":       "Chicken and Vegetable Stir-Fry",
+    "ingredients": [...],
+    "steps":       [...],
+    "ner":         [...],
+    "macros":      { "calories": 728, ... }
+  },
+  "warnings": []
+}
+```
+
+### 7.6. Codigos de respuesta
+
+| Codigo | Significado |
+|---|---|
+| `200` | Procesado correctamente |
+| `400` | Formato de imagen no soportado o imagen corrupta |
+| `413` | Imagen demasiado grande (mas de 10 MB) |
+| `500` | Error interno inesperado |
+| `503` | PostgreSQL o Ollama no disponibles |
+
+### 7.7. Prerequisitos para la ejecucion
+
+Antes de arrancar el servidor web, deben estar disponibles:
+
+- Contenedor Docker `gria_postgres` corriendo (`docker compose up -d`)
+- Servidor Ollama activo (`ollama serve`)
+- Modelos Ollama descargados (`minicpm-v`, `qwen2.5:1.5b`)
+- ETL ejecutado al menos una vez (tabla `recipes` poblada)
+- Tabla nutricional USDA cargada (`python -m src.nutrition.load_usda`)
+
+El endpoint `GET /health` permite verificar todo de un vistazo:
+
+```powershell
+curl http://localhost:8000/health
+```
+
+---
+
+## 8. Estructura del proyecto
 
 ```
 GR-IA/
@@ -306,6 +421,15 @@ GR-IA/
 |   |   |-- load_usda.py        Carga de la base USDA en PostgreSQL
 |   |   `-- calculator.py       Parser de ingredientes + calculo de macros
 |   |
+|   |-- api/                    Capa web (API REST + UI)
+|   |   |-- main.py             Aplicacion FastAPI con los endpoints
+|   |   |-- service.py          Logica de orquestacion compartida con el CLI
+|   |   |-- schemas.py          Modelos Pydantic del contrato JSON
+|   |   `-- static/
+|   |       |-- index.html      Pagina de la demo
+|   |       |-- style.css       Estilos
+|   |       `-- app.js          Logica de la UI
+|   |
 |   `-- data/                   Datasets locales (no incluidos en git)
 |       |-- foodcom_recipes.parquet
 |       |-- sr_legacy/
@@ -321,9 +445,118 @@ GR-IA/
 
 ---
 
-## 8. Mantenimiento y limpieza
+## 9. Persistencia de recetas generadas por IA
 
-### 8.1. Detener los servicios
+GR-IA permite que el usuario guarde en la base de datos las recetas
+originales creadas por el modelo de lenguaje. Estas recetas se
+distinguen explicitamente de las del dataset original, llevan
+metadatos de procedencia y se deduplican para no contaminar las
+busquedas posteriores.
+
+### 9.1. Esquema de datos
+
+Cuando una receta IA se guarda, se persiste con los siguientes campos
+adicionales a los de una receta normal:
+
+| Columna | Tipo | Uso |
+|---|---|---|
+| `source` | TEXT | `'foodcom'` o `'ai_generated'` |
+| `provenance` | JSONB | metadatos de generacion (modelo, fecha, ingredientes de entrada, prompt) |
+| `dedup_hash` | TEXT | SHA-256 normalizado para deteccion de duplicados |
+| `steps` | JSONB | pasos estructurados, preservando el orden original |
+| `macros_known` | BOOLEAN | `false` indica que los macros son estimados via USDA |
+
+Las macros desconocidas se guardan como `NULL`, nunca como `0.0`,
+para no contaminar analisis ni filtros nutricionales.
+
+### 9.2. Procedencia (`provenance`)
+
+Ejemplo del JSON guardado para cada receta generada:
+
+```json
+{
+  "model":            "qwen2.5:1.5b",
+  "embedding_model":  "all-MiniLM-L6-v2",
+  "generated_at":     "2026-05-31T15:30:00+00:00",
+  "input_ingredients": {
+    "main":          ["chicken"],
+    "secondary":     ["celery"],
+    "accompaniment": [],
+    "spices":        []
+  },
+  "prompt_version":   "v1"
+}
+```
+
+Esta informacion permite reproducir, depurar o explicar el resultado
+de cualquier receta persistida en el sistema.
+
+### 9.3. Deduplicacion
+
+El sistema calcula un hash SHA-256 a partir del titulo normalizado y los
+ingredientes NER ordenados. Si una receta equivalente ya existe en la BD,
+no se inserta de nuevo y se devuelve el `id` de la receta existente.
+
+Se consideran equivalentes recetas que solo difieren en:
+- Mayusculas / minusculas del titulo o de los ingredientes
+- Espacios en blanco al inicio o al final
+- Orden de los ingredientes NER
+- Ingredientes duplicados dentro de la lista
+
+### 9.4. Validacion previa al guardado
+
+Antes de persistir, el modulo `src/retrieval/validation.py` comprueba:
+
+- Titulo no vacio y de longitud razonable (max. 200 caracteres)
+- Al menos un ingrediente y un paso
+- NER no vacio
+- Todos los elementos son cadenas de texto
+- Ningun paso supera 1000 caracteres
+- Ningun campo contiene bytes nulos
+
+Si la validacion falla, la API devuelve `422 Unprocessable Entity`
+con la lista detallada de errores y la receta no se persiste.
+
+### 9.5. Filtrado en busquedas
+
+Las recetas IA aparecen en los resultados de busqueda por defecto, pero
+se marcan visualmente con un badge `[IA]` para que el usuario distinga
+contenido original de contenido generado. El parametro `include_ai=false`
+en `/predict`, o el flag `--no-ai` en el CLI, las excluye de los
+resultados.
+
+### 9.6. Migracion de datos existentes
+
+El script `src/etl/migrate_provenance.py` aplica las nuevas columnas y
+migra el contenido previo de forma idempotente. Ejecucion:
+
+```powershell
+python -m src.etl.migrate_provenance
+```
+
+Despues de ejecutarse, las recetas que estaban marcadas con
+`etl_batch_id = -1` quedan etiquetadas como `source = 'ai_generated'`
+con sus correspondientes `dedup_hash` y `macros_known = FALSE`.
+
+### 9.7. Tests automatizados
+
+Suite de pruebas con `pytest`:
+
+```powershell
+python -m pytest src/tests/ -v
+```
+
+- `test_validation.py`: 11 tests unitarios de las reglas de validacion
+- `test_dedup_hash.py`: 11 tests unitarios del hash de deduplicacion
+- `test_save_integration.py`: 7 tests de integracion contra PostgreSQL
+  que verifican procedencia, duplicados, validacion y persistencia
+  del embedding
+
+---
+
+## 10. Mantenimiento y limpieza
+
+### 10.1. Detener los servicios
 
 ```powershell
 docker compose stop
@@ -331,13 +564,13 @@ docker compose stop
 
 Detiene los contenedores conservando los datos.
 
-### 8.2. Eliminar contenedores conservando datos
+### 10.2. Eliminar contenedores conservando datos
 
 ```powershell
 docker compose down
 ```
 
-### 8.3. Limpieza total (incluyendo la base de datos)
+### 10.3. Limpieza total (incluyendo la base de datos)
 
 ```powershell
 docker compose down -v
@@ -347,7 +580,7 @@ docker compose down -v
 **borra completamente la base de datos**. Tras ejecutar este comando
 es necesario volver a lanzar el ETL completo.
 
-### 8.4. Reiniciar el esquema de la base de datos sin perder Docker
+### 10.4. Reiniciar el esquema de la base de datos sin perder Docker
 
 ```powershell
 docker exec -it gria_postgres psql -U admin -d gria_db -c "DROP TABLE IF EXISTS recipe_chunks CASCADE; DROP TABLE IF EXISTS recipes CASCADE; DROP TABLE IF EXISTS nutrition_usda CASCADE;"
@@ -355,16 +588,16 @@ docker exec -it gria_postgres psql -U admin -d gria_db -c "DROP TABLE IF EXISTS 
 
 ---
 
-## 9. Referencias
+## 11. Referencias
 
-### 9.1. Datasets
+### 11.1. Datasets
 
 - **Food.com Recipes and Reviews**, irkaal et al. (Kaggle, 2021).
   https://www.kaggle.com/datasets/irkaal/foodcom-recipes-and-reviews
 - **USDA FoodData Central - SR Legacy**, U.S. Department of Agriculture (2019).
   https://fdc.nal.usda.gov
 
-### 9.2. Modelos
+### 11.2. Modelos
 
 - **MiniCPM-V**, OpenBMB.
   https://github.com/OpenBMB/MiniCPM-V
@@ -375,7 +608,7 @@ docker exec -it gria_postgres psql -U admin -d gria_db -c "DROP TABLE IF EXISTS 
 - **Helsinki-NLP/opus-mt-en-es**, University of Helsinki.
   https://huggingface.co/Helsinki-NLP/opus-mt-en-es
 
-### 9.3. Tecnologias
+### 11.3. Tecnologias
 
 - **pgvector**: https://github.com/pgvector/pgvector
 - **Ollama**: https://ollama.com

@@ -283,4 +283,9 @@ def generate_recipe(classified: dict, conn=None) -> dict | None:
         "fat_g":            macros["fat_g"],
         "carbs_g":          macros["carbs_g"],
         "fiber_g":          macros["fiber_g"],
+        # Metadatos de procedencia (se persisten en provenance JSONB)
+        "model":              OLLAMA_GENERATION_MODEL,
+        "embedding_model":    "all-MiniLM-L6-v2",
+        "input_ingredients":  classified,
+        "prompt_version":     "v1",
     }

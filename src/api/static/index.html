@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GR-IA · Recomendación de recetas</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header>
+        <h1>GR-IA</h1>
+        <p class="subtitle">Recomendación de recetas a partir de una fotografía</p>
+    </header>
+
+    <main>
+        <section id="upload-section" class="card">
+            <h2>1. Sube una imagen</h2>
+            <div class="upload-area">
+                <label for="image-input" class="upload-label">
+                    <span id="upload-text">Selecciona una foto de tus ingredientes</span>
+                    <input type="file" id="image-input" accept="image/jpeg,image/png,image/webp" hidden>
+                </label>
+                <img id="preview" alt="Vista previa" hidden>
+            </div>
+
+            <div class="controls">
+                <label>
+                    Número de recetas:
+                    <select id="top-k">
+                        <option value="3" selected>3</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                    </select>
+                </label>
+                <label class="checkbox">
+                    <input type="checkbox" id="generate" checked>
+                    Generar receta original con IA
+                </label>
+                <label class="checkbox">
+                    <input type="checkbox" id="include-ai" checked>
+                    Incluir recetas IA guardadas
+                </label>
+                <button id="predict-btn" disabled>Analizar imagen</button>
+            </div>
+        </section>
+
+        <div id="status" hidden></div>
+        <div id="error" class="banner error" hidden></div>
+
+        <section id="results" hidden>
+            <section class="card">
+                <h2>2. Ingredientes detectados</h2>
+                <div id="ingredients"></div>
+            </section>
+
+            <section class="card">
+                <h2>3. Recetas recomendadas</h2>
+                <div id="recipes"></div>
+            </section>
+
+            <section id="ai-section" class="card" hidden>
+                <h2>4. Receta generada por la IA</h2>
+                <div id="ai-recipe"></div>
+            </section>
+        </section>
+    </main>
+
+    <footer>
+        <p>GR-IA · TFG · Universidad San Jorge</p>
+        <p><a href="/docs">Documentación de la API</a> · <a href="/health">Estado del sistema</a></p>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

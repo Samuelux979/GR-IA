@@ -10,18 +10,26 @@ logger = logging.getLogger(__name__)
 
 SQL_CREATE_RECIPES = f"""
 CREATE TABLE IF NOT EXISTS recipes (
-    id           SERIAL PRIMARY KEY,
-    title        TEXT NOT NULL,
-    ingredients  JSONB NOT NULL,
-    ner          JSONB NOT NULL,
-    category     TEXT,
-    calories     FLOAT,
-    protein_g    FLOAT,
-    fat_g        FLOAT,
-    carbs_g      FLOAT,
-    fiber_g      FLOAT,
-    created_at   TIMESTAMP DEFAULT NOW(),
-    etl_batch_id INTEGER
+    id            SERIAL PRIMARY KEY,
+    title         TEXT NOT NULL,
+    ingredients   JSONB NOT NULL,
+    ner           JSONB NOT NULL,
+    steps         JSONB,
+    category      TEXT,
+    -- Procedencia
+    source        TEXT DEFAULT 'foodcom',  -- 'foodcom' | 'ai_generated'
+    provenance    JSONB,                   -- metadatos de generacion (solo IA)
+    dedup_hash    TEXT,                    -- SHA-256(title + sorted(ner)) para deduplicar
+    -- Nutricion (NULL si se desconoce)
+    calories      FLOAT,
+    protein_g     FLOAT,
+    fat_g         FLOAT,
+    carbs_g       FLOAT,
+    fiber_g       FLOAT,
+    macros_known  BOOLEAN DEFAULT TRUE,    -- false = valores estimados con USDA
+    -- Control ETL
+    created_at    TIMESTAMP DEFAULT NOW(),
+    etl_batch_id  INTEGER
 );
 """
 
@@ -38,6 +46,8 @@ CREATE TABLE IF NOT EXISTS recipe_chunks (
 
 SQL_POST_ETL_INDICES = [
     "CREATE INDEX IF NOT EXISTS idx_recipes_ner ON recipes USING GIN (ner);",
+    "CREATE INDEX IF NOT EXISTS idx_recipes_source ON recipes (source);",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_recipes_dedup_hash ON recipes (dedup_hash) WHERE dedup_hash IS NOT NULL;",
     (
         "CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON recipe_chunks "
         f"USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);"

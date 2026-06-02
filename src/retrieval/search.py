@@ -42,6 +42,7 @@ WITH scored AS (
         ) AS score
     FROM recipes r
     WHERE r.ner ?| %(all_variants)s
+      AND (%(include_ai)s OR COALESCE(r.source, 'foodcom') <> 'ai_generated')
 ),
 filtered AS (
     SELECT id, score FROM scored WHERE score >= 4
@@ -62,7 +63,10 @@ SELECT
     r.title,
     r.ingredients,
     r.ner,
+    r.steps,
     r.category,
+    r.source,
+    r.macros_known,
     r.calories,
     r.protein_g,
     r.carbs_g,
@@ -102,10 +106,17 @@ def _variants(term: str) -> list[str]:
     return list(v)
 
 
-def search_recipes(conn, classified: dict, top_k: int = 10) -> list[dict]:
+def search_recipes(
+    conn,
+    classified: dict,
+    top_k: int = 10,
+    include_ai: bool = True,
+) -> list[dict]:
     """
     Recupera las recetas mas relevantes usando puntuacion ponderada por nivel
     de ingrediente y similitud coseno como criterio de desempate.
+
+    include_ai=False excluye recetas generadas por IA (source='ai_generated').
     """
     main          = [i.lower().strip() for i in classified.get("main", [])]
     secondary     = [i.lower().strip() for i in classified.get("secondary", [])]
@@ -115,14 +126,12 @@ def search_recipes(conn, classified: dict, top_k: int = 10) -> list[dict]:
     if not any([main, secondary, accompaniment, spices]):
         return []
 
-    # Expandir cada termino con sus variantes plural/singular
     main_v          = list({v for t in main          for v in _variants(t)})
     secondary_v     = list({v for t in secondary     for v in _variants(t)})
     accompaniment_v = list({v for t in accompaniment for v in _variants(t)})
     spices_v        = list({v for t in spices        for v in _variants(t)})
     all_variants    = list(set(main_v + secondary_v + accompaniment_v + spices_v))
 
-    # Texto de consulta para el embedding
     parts = []
     if main:
         parts.append("Main ingredient: " + ", ".join(main))
@@ -142,24 +151,35 @@ def search_recipes(conn, classified: dict, top_k: int = 10) -> list[dict]:
             "all_variants":  all_variants,
             "query_vec":     query_vec,
             "top_k":         top_k,
+            "include_ai":    include_ai,
         })
         rows = cur.fetchall()
 
     results = []
     for row in rows:
+        # Pasos: priorizar la columna estructurada; si no existe (recetas viejas),
+        # se reconstruyen luego desde chunk_text en la capa de servicio.
+        steps_raw = row.get("steps")
+        steps     = None
+        if steps_raw is not None:
+            steps = steps_raw if isinstance(steps_raw, list) else json.loads(steps_raw)
+
         results.append({
-            "id":          row["id"],
-            "title":       row["title"],
-            "ingredients": row["ingredients"] if isinstance(row["ingredients"], list) else json.loads(row["ingredients"]),
-            "ner":         row["ner"]         if isinstance(row["ner"],         list) else json.loads(row["ner"]),
-            "category":    row["category"],
-            "calories":    row["calories"],
-            "protein_g":   row["protein_g"],
-            "carbs_g":     row["carbs_g"],
-            "fat_g":       row["fat_g"],
-            "fiber_g":     row["fiber_g"],
-            "chunk_text":  row["content"],
-            "distance":    float(row["distance"]),
-            "score":       int(row["score"]),
+            "id":           row["id"],
+            "title":        row["title"],
+            "ingredients":  row["ingredients"] if isinstance(row["ingredients"], list) else json.loads(row["ingredients"]),
+            "ner":          row["ner"]         if isinstance(row["ner"],         list) else json.loads(row["ner"]),
+            "steps":        steps,
+            "category":     row["category"],
+            "source":       row.get("source") or "foodcom",
+            "macros_known": row.get("macros_known", True),
+            "calories":     row["calories"],
+            "protein_g":    row["protein_g"],
+            "carbs_g":      row["carbs_g"],
+            "fat_g":        row["fat_g"],
+            "fiber_g":      row["fiber_g"],
+            "chunk_text":   row["content"],
+            "distance":     float(row["distance"]),
+            "score":        int(row["score"]),
         })
     return results
