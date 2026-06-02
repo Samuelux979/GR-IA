@@ -527,6 +527,11 @@ resultados.
 
 ### 9.6. Migracion de datos existentes
 
+> **Nota:** este paso NO es necesario en una instalacion desde cero. El
+> esquema que crea el ETL (`src/etl/schema.py`) ya incluye todas las
+> columnas de procedencia. El script solo sirve para actualizar una base
+> de datos creada con una version anterior del proyecto.
+
 El script `src/etl/migrate_provenance.py` aplica las nuevas columnas y
 migra el contenido previo de forma idempotente. Ejecucion:
 
