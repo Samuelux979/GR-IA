@@ -30,7 +30,7 @@ from src.api.schemas import (
     AIRecipe, HealthCheck, HealthResponse, Ingredients, Macros,
     PredictResponse, Recipe, SaveRequest, SaveResponse,
 )
-from src.retrieval.save_generated import RecipeValidationError
+from src.retrieval.save_generated import RecipeValidationError, RecipeImplausibleError
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,8 @@ def _build_predict_response(result: dict) -> PredictResponse:
             steps        = r["steps"],
             matches      = r["matches"],
             score        = r["score"],
+            grade        = r["grade"],
+            match_level  = r["match_level"],
             distance     = r["distance"],
             macros       = Macros(**r["macros"]),
         )
@@ -181,6 +183,11 @@ def save(req: SaveRequest):
         recipe_id, was_new = persist_generated_recipe(recipe)
     except RecipeValidationError as e:
         raise HTTPException(422, {"errors": e.errors})
+    except RecipeImplausibleError as e:
+        raise HTTPException(422, {"errors": [
+            "No se ha guardado: la combinacion de ingredientes no se considera "
+            f"culinariamente plausible (puntuacion {e.score:.1f}/10)."
+        ]})
     except psycopg2.OperationalError:
         raise HTTPException(503, "Base de datos no disponible.")
     except Exception:

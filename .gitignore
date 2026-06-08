@@ -16,6 +16,13 @@ src/data/sr_legacy/
 # Local model cache (downloaded automatically at runtime)
 models/
 
+# Evaluacion: imagenes (licencia/tamano) y reportes generados.
+# Se versionan los .jsonl de ground truth y la estructura de carpetas.
+evaluation/images/*
+!evaluation/images/.gitkeep
+evaluation/reports/*
+!evaluation/reports/.gitkeep
+
 # IDE
 .vscode/
 .idea/

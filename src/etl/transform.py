@@ -9,7 +9,27 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from src.retrieval.ingredient_normalizer import normalize_ingredient
+
 logger = logging.getLogger(__name__)
+
+
+def _normalize_ner(parts: list) -> list:
+    """
+    Normaliza y deduplica los nombres de ingredientes para 'ner'.
+
+    Reutiliza el normalizador de la busqueda (sin fuzzy, por rendimiento sobre
+    150k recetas): minusculas, singular, sinonimos. Elimina duplicados exactos
+    y por variante equivalente (p.ej. 'tomatoes' y 'tomato' -> 'tomato'),
+    preservando el orden de primera aparicion.
+    """
+    seen, ner = set(), []
+    for p in parts:
+        n = normalize_ingredient(p, fuzzy=False)
+        if n and n not in seen:
+            seen.add(n)
+            ner.append(n)
+    return ner
 
 
 @dataclass
@@ -17,6 +37,7 @@ class RecipeDocument:
     title:       str
     ingredients: list
     ner:         list
+    steps:       list
     category:    str
     calories:    float
     protein_g:   float
@@ -79,7 +100,7 @@ def transform_chunk(df: pd.DataFrame) -> TransformResult:
             result.rows_discarded += 1
             continue
 
-        ner         = list(dict.fromkeys(p.lower() for p in parts if p))
+        ner         = _normalize_ner(parts)
         ingredients = _build_ingredients(quantities, parts)
 
         def _float(col: str) -> float:
@@ -90,6 +111,7 @@ def transform_chunk(df: pd.DataFrame) -> TransformResult:
             title       = _sanitize(title),
             ingredients = ingredients,
             ner         = ner,
+            steps       = steps,
             category    = _sanitize(str(row.get("RecipeCategory") or "")),
             calories    = _float("Calories"),
             protein_g   = _float("ProteinContent"),

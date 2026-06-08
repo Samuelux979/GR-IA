@@ -1,0 +1,6 @@
+{"image": "fruits.jpg", "expected": ["strawberry", "pear", "banana", "avocado", "lime", "lemon", "mint"], "notes": "Flat-lay de fruta: varios ingredientes claros y bien separados"}
+{"image": "fish_tomato_garlic.jpg", "expected": ["fish", "tomato", "garlic", "parsley", "lemon"], "notes": "Pescado con guarnicion; pone a prueba deteccion de proteina + verduras pequenas"}
+{"image": "green_vegetables.jpg", "expected": ["celery", "cucumber", "lime", "apple", "grapes", "spinach", "parsley"], "notes": "Caso confuso: muchos verdes parecidos (apio, pepino, espinaca, perejil)"}
+{"image": "fresh_herbs.jpg", "expected": ["parsley", "dill", "mint", "rosemary", "garlic", "shallot"], "notes": "Caso confuso: hierbas frescas dificiles de distinguir entre si"}
+{"image": "salmon_lemon.jpg", "expected": ["salmon", "lemon", "rosemary", "black pepper"], "notes": "Guarnicion (romero) y especia visible (pimienta negra)"}
+{"image": "mixed_vegetables.jpg", "expected": ["tomato", "radish", "eggplant", "cabbage", "carrot", "beetroot", "turnip"], "notes": "Caso complejo: muchas verduras de distintos colores"}

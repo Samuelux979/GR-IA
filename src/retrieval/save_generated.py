@@ -17,6 +17,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from src.config import PLAUSIBILITY_THRESHOLD
 from src.etl.embed import embed_texts
 from src.retrieval.validation import validate_recipe
 
@@ -29,6 +30,18 @@ class RecipeValidationError(ValueError):
     def __init__(self, errors: list[str]):
         super().__init__("Receta invalida: " + " | ".join(errors))
         self.errors = errors
+
+
+class RecipeImplausibleError(ValueError):
+    """Lanzada cuando una receta no supera el umbral de plausibilidad culinaria."""
+
+    def __init__(self, score: float, threshold: float):
+        super().__init__(
+            f"Receta no plausible (puntuacion {score:.1f}/10, "
+            f"minimo requerido {threshold:.1f})."
+        )
+        self.score = score
+        self.threshold = threshold
 
 
 def compute_dedup_hash(title: str, ner: list) -> str:
@@ -61,14 +74,18 @@ def _build_provenance(recipe: dict) -> dict:
     }
 
 
-def save_generated_recipe(conn, recipe: dict) -> tuple[int, bool]:
+def save_generated_recipe(conn, recipe: dict, check_plausibility: bool = True) -> tuple[int, bool]:
     """
-    Persiste una receta generada por IA aplicando validacion y deduplicacion.
+    Persiste una receta generada por IA aplicando validacion, comprobacion
+    de plausibilidad culinaria y deduplicacion.
 
     Devuelve una tupla (recipe_id, was_new) donde was_new es False si la
     receta ya existia y se devuelve su id sin insertar duplicados.
 
-    Lanza RecipeValidationError si la receta no cumple los minimos.
+    Lanza RecipeValidationError si la receta no cumple los minimos de calidad.
+    Lanza RecipeImplausibleError si no supera el umbral de plausibilidad.
+
+    check_plausibility se puede desactivar en tests para no depender del LLM.
     """
     errors = validate_recipe(recipe)
     if errors:
@@ -78,6 +95,15 @@ def save_generated_recipe(conn, recipe: dict) -> tuple[int, bool]:
     ingredients = recipe["ingredients"]
     steps       = recipe["steps"]
     ner         = recipe["ner"]
+
+    # Gate de plausibilidad: el LLM valora la coherencia culinaria y se
+    # bloquea el guardado si la combinacion de ingredientes no es plausible.
+    if check_plausibility:
+        from src.vision.llava_client import assess_plausibility
+        score = assess_plausibility(ner or ingredients)
+        if score < PLAUSIBILITY_THRESHOLD:
+            logger.info("Receta '%s' rechazada por plausibilidad (%.1f).", title, score)
+            raise RecipeImplausibleError(score, PLAUSIBILITY_THRESHOLD)
 
     dedup_hash = compute_dedup_hash(title, ner)
 

@@ -128,7 +128,12 @@ function renderRecipes(recipes) {
         el.innerHTML = `
             <div class="recipe-header">
                 <div class="recipe-title">${escape(r.title)} ${aiBadge}</div>
-                <div class="recipe-meta">${escape(r.category || "")} · Score ${r.score}</div>
+                <div class="recipe-meta">
+                    ${escape(r.category || "")}
+                    <span class="grade grade-${r.match_level}" title="Afinidad con los ingredientes detectados">
+                        ${r.grade}/10
+                    </span>
+                </div>
             </div>
             ${r.matches.length ? `<div class="recipe-matches">Coincide con tu foto: <strong>${r.matches.map(escape).join(", ")}</strong></div>` : ""}
             <div class="recipe-section">

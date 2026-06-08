@@ -5,10 +5,14 @@ Crea la tabla nutrition_usda con un fila por alimento y los 5 macronutrientes
 principales (kcal, proteina, grasa, carbos, fibra) por 100 g.
 
 Uso:
-    python -m src.nutrition.load_usda
+    python -m src.nutrition.load_usda             # carga si la tabla no existe / esta vacia
+    python -m src.nutrition.load_usda --recreate  # recrea la tabla aunque ya tenga datos
 """
 
+import argparse
 import logging
+import sys
+
 import pandas as pd
 import psycopg2
 
@@ -41,7 +45,6 @@ EXCLUDED_CATEGORIES = {
 }
 
 SQL_CREATE_TABLE = """
-DROP TABLE IF EXISTS nutrition_usda;
 CREATE TABLE nutrition_usda (
     fdc_id      INTEGER PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -58,7 +61,29 @@ CREATE INDEX idx_nutrition_name_trgm ON nutrition_usda USING GIN (name_lower gin
 """
 
 
-def load() -> None:
+def _table_row_count(cur) -> int | None:
+    """Devuelve el numero de filas de nutrition_usda, o None si no existe."""
+    cur.execute("SELECT to_regclass('public.nutrition_usda');")
+    if cur.fetchone()[0] is None:
+        return None
+    cur.execute("SELECT COUNT(*) FROM nutrition_usda;")
+    return cur.fetchone()[0]
+
+
+def load(recreate: bool = False) -> None:
+    # Comprobacion previa: no destruir datos existentes sin --recreate
+    conn = psycopg2.connect(get_dsn())
+    with conn.cursor() as cur:
+        existing = _table_row_count(cur)
+        if existing is not None and existing > 0 and not recreate:
+            conn.close()
+            logger.error(
+                "La tabla nutrition_usda ya contiene %d filas. "
+                "Usa --recreate para recrearla (se borraran los datos actuales).",
+                existing,
+            )
+            sys.exit(1)
+
     logger.info("Leyendo CSVs de USDA SR Legacy...")
     food = pd.read_csv(SR_DIR / "food.csv")
     food_nut = pd.read_csv(SR_DIR / "food_nutrient.csv", usecols=["fdc_id", "nutrient_id", "amount"])
@@ -78,10 +103,10 @@ def load() -> None:
     # Unir food con sus nutrientes
     merged = food.merge(pivot, on="fdc_id", how="left").fillna(0)
 
-    # Conectar a PostgreSQL y crear tabla
-    conn = psycopg2.connect(get_dsn())
+    # Crear tabla (se elimina la anterior solo en este punto, ya validado)
     with conn.cursor() as cur:
         cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+        cur.execute("DROP TABLE IF EXISTS nutrition_usda;")
         cur.execute(SQL_CREATE_TABLE)
 
         # Inserciones por lotes
@@ -112,4 +137,11 @@ def load() -> None:
 
 
 if __name__ == "__main__":
-    load()
+    parser = argparse.ArgumentParser(description="Carga la base nutricional USDA en PostgreSQL")
+    parser.add_argument(
+        "--recreate",
+        action="store_true",
+        help="Recrea la tabla aunque ya contenga datos (los borra y vuelve a cargar)",
+    )
+    args = parser.parse_args()
+    load(recreate=args.recreate)

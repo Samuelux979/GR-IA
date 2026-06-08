@@ -1,0 +1,10 @@
+{"query_ingredients": {"main": ["chicken"], "secondary": ["onion", "garlic"], "accompaniment": [], "spices": ["paprika"]}, "relevant_if_ner_contains": ["chicken"], "notes": "Ingrediente principal fuerte: las recetas deben contener pollo"}
+{"query_ingredients": {"main": ["salmon"], "secondary": ["lemon"], "accompaniment": ["dill"], "spices": []}, "relevant_if_ner_contains": ["salmon"], "notes": "Pescado como principal"}
+{"query_ingredients": {"main": ["pasta"], "secondary": ["tomato"], "accompaniment": ["basil"], "spices": []}, "relevant_if_ner_contains": ["pasta"], "notes": "Plato de pasta"}
+{"query_ingredients": {"main": ["rice"], "secondary": ["egg", "carrot"], "accompaniment": [], "spices": ["soy sauce"]}, "relevant_if_ner_contains": ["rice"], "notes": "Arroz; los secundarios afinan la relevancia"}
+{"query_ingredients": {"main": ["beef"], "secondary": ["potato"], "accompaniment": [], "spices": ["rosemary"]}, "relevant_if_ner_contains": ["beef"], "notes": "Carne con guarnicion"}
+{"query_ingredients": {"main": ["broccoli"], "secondary": ["garlic"], "accompaniment": [], "spices": []}, "relevant_if_ner_contains": ["broccoli"], "notes": "Vegetal como principal"}
+{"query_ingredients": {"main": ["pollo"], "secondary": ["cebolla", "ajo"], "accompaniment": [], "spices": []}, "relevant_if_ner_contains": ["chicken"], "notes": "Consulta en espanol: pollo/cebolla/ajo deben mapear a chicken/onion/garlic"}
+{"query_ingredients": {"main": ["red pepper"], "secondary": ["onion"], "accompaniment": [], "spices": []}, "relevant_if_ner_contains": ["pepper"], "notes": "Sinonimo: red pepper -> bell pepper"}
+{"query_ingredients": {"main": ["chiken"], "secondary": ["tomatoe"], "accompaniment": [], "spices": []}, "relevant_if_ner_contains": ["chicken"], "notes": "Typos: chiken/tomatoe deben corregirse a chicken/tomato"}
+{"query_ingredients": {"main": ["garbanzo"], "secondary": ["tomate"], "accompaniment": [], "spices": []}, "relevant_if_ner_contains": ["chickpea"], "notes": "Sinonimo + espanol: garbanzo->chickpea, tomate->tomato"}

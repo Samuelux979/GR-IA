@@ -22,6 +22,7 @@ from src.config import (
     OLLAMA_VISION_MODEL,
     OLLAMA_TEXT_MODEL,
     OLLAMA_GENERATION_MODEL,
+    OLLAMA_TIMEOUT,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,9 +91,29 @@ Rules:
 - Use ONLY the provided ingredients plus salt, pepper, olive oil, water, garlic
 """
 
+# Se usa una clasificacion binaria (NORMAL/ABSURD) en lugar de una nota
+# numerica: un modelo pequeno como qwen2.5:1.5b clasifica de forma mucho
+# mas fiable de lo que puntua en una escala continua.
+PLAUSIBILITY_PROMPT = """You are a chef. Decide if these ingredients could belong to the SAME normal dish.
+Answer with ONE word only: NORMAL or ABSURD.
+
+NORMAL = ingredients commonly combined in real cooking.
+ABSURD = ingredients that clash and no cook would ever combine.
+
+Ingredients: {ingredients}
+Answer:"""
+
 
 def _make_llm(model: str, temperature: float) -> ChatOllama:
-    return ChatOllama(model=model, base_url=OLLAMA_BASE_URL, temperature=temperature, num_ctx=2048)
+    # client_kwargs pasa el timeout al cliente HTTP subyacente para evitar
+    # que la peticion quede colgada si Ollama no responde o esta cargando.
+    return ChatOllama(
+        model=model,
+        base_url=OLLAMA_BASE_URL,
+        temperature=temperature,
+        num_ctx=2048,
+        client_kwargs={"timeout": OLLAMA_TIMEOUT},
+    )
 
 
 def encode_image(image_path: str | Path, max_size: int = 672) -> str:
@@ -211,7 +232,9 @@ def format_recipes_response(classified: dict, recipes: list[dict]) -> str:
     for i, r in enumerate(recipes, 1):
         ner    = list(dict.fromkeys(r.get("ner") or []))
         shared = [ing for ing in ner if ing.lower() in all_ingredients_set]
-        steps  = _parse_steps(r.get("chunk_text", ""))
+        # Usar pasos estructurados si existen; fallback a parsear chunk_text
+        # (compatibilidad con recetas cargadas antes de la columna steps)
+        steps  = r.get("steps") or _parse_steps(r.get("chunk_text", ""))
 
         lines.append("-" * 50)
         lines.append(f"{i}. {r['title']}")
@@ -234,16 +257,22 @@ def format_recipes_response(classified: dict, recipes: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def generate_recipe(classified: dict, conn=None) -> dict | None:
+def generate_recipe(classified: dict, conn=None, model: str | None = None,
+                    translate: bool = True) -> dict | None:
     """
     Genera una receta original con los ingredientes detectados usando el LLM
     y calcula sus macronutrientes a partir de USDA si se pasa una conexion.
+
+    model permite usar un modelo de generacion distinto al de produccion
+    (util para comparar modelos en la evaluacion).
+    translate=False omite la traduccion de pasos (evita cargar MarianMT cuando
+    solo se necesita el texto en ingles, p.ej. en la comparativa de modelos).
     """
     all_ingredients = flatten_ingredients(classified)
     if not all_ingredients:
         return None
 
-    llm  = _make_llm(OLLAMA_GENERATION_MODEL, temperature=0.7)
+    llm  = _make_llm(model or OLLAMA_GENERATION_MODEL, temperature=0.7)
     data = _parse_json(
         llm.invoke([HumanMessage(content=GENERATE_RECIPE_PROMPT.format(
             ingredients=", ".join(all_ingredients)
@@ -261,7 +290,12 @@ def generate_recipe(classified: dict, conn=None) -> dict | None:
     if not title or not steps:
         return None
 
-    from src.vision.translator import translate_steps_to_es
+    # Traduccion opcional de los pasos (carga MarianMT solo si se pide)
+    if translate:
+        from src.vision.translator import translate_steps_to_es
+        steps_translated = translate_steps_to_es(steps)
+    else:
+        steps_translated = steps
 
     # Calculo nutricional via USDA (si hay conexion a la BD)
     macros = {"calories": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carbs_g": 0.0, "fiber_g": 0.0}
@@ -275,7 +309,7 @@ def generate_recipe(classified: dict, conn=None) -> dict | None:
         "title":            title,
         "ingredients":      ingredients,
         "steps":            steps,
-        "steps_translated": translate_steps_to_es(steps),
+        "steps_translated": steps_translated,
         "ner":              list(dict.fromkeys(i.lower().strip() for i in all_ingredients)),
         "category":         "AI Generated",
         "calories":         macros["calories"],
@@ -289,3 +323,31 @@ def generate_recipe(classified: dict, conn=None) -> dict | None:
         "input_ingredients":  classified,
         "prompt_version":     "v1",
     }
+
+
+def assess_plausibility(ingredients: list[str]) -> float:
+    """
+    Evalua la plausibilidad culinaria de una combinacion de ingredientes.
+
+    El LLM clasifica la combinacion como NORMAL o ABSURD; el resultado se
+    traduce a una puntuacion sobre 10 para mantener un umbral configurable:
+      - NORMAL -> 9.0
+      - ABSURD -> 1.0
+
+    Si la respuesta no se puede interpretar, devuelve 10.0 (fail-open):
+    es preferible no bloquear una receta legitima por un fallo del modelo.
+    """
+    if not ingredients:
+        return 10.0
+
+    llm    = _make_llm(OLLAMA_GENERATION_MODEL, temperature=0.0)
+    prompt = PLAUSIBILITY_PROMPT.format(ingredients=", ".join(ingredients))
+    answer = llm.invoke([HumanMessage(content=prompt)]).content.strip().upper()
+
+    if "ABSURD" in answer:
+        return 1.0
+    if "NORMAL" in answer:
+        return 9.0
+
+    logger.warning("Respuesta de plausibilidad no reconocida (%r); se permite por defecto.", answer[:40])
+    return 10.0

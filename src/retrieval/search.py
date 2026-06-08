@@ -15,6 +15,7 @@ import psycopg2
 import psycopg2.extras
 
 from src.etl.embed import embed_texts
+from src.retrieval.ingredient_normalizer import normalize_level
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +118,16 @@ def search_recipes(
     de ingrediente y similitud coseno como criterio de desempate.
 
     include_ai=False excluye recetas generadas por IA (source='ai_generated').
+
+    Cada ingrediente se normaliza a su forma canonica (sinonimos, espanol->ingles,
+    plurales y correccion ortografica) PRESERVANDO su nivel, de modo que el
+    scoring ponderado (main x8, secondary x4, ...) se mantiene intacto.
     """
-    main          = [i.lower().strip() for i in classified.get("main", [])]
-    secondary     = [i.lower().strip() for i in classified.get("secondary", [])]
-    accompaniment = [i.lower().strip() for i in classified.get("accompaniment", [])]
-    spices        = [i.lower().strip() for i in classified.get("spices", [])]
+    # Normalizacion canonica por nivel (no se aplana: conserva los pesos)
+    main          = normalize_level(classified.get("main", []))
+    secondary     = normalize_level(classified.get("secondary", []))
+    accompaniment = normalize_level(classified.get("accompaniment", []))
+    spices        = normalize_level(classified.get("spices", []))
 
     if not any([main, secondary, accompaniment, spices]):
         return []

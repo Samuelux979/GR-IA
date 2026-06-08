@@ -13,7 +13,7 @@ from src.etl.transform import RecipeDocument
 logger = logging.getLogger(__name__)
 
 SQL_INSERT_RECIPE = """
-    INSERT INTO recipes (title, ingredients, ner, category,
+    INSERT INTO recipes (title, ingredients, ner, steps, category,
                          calories, protein_g, fat_g, carbs_g, fiber_g, etl_batch_id)
     VALUES %s
     RETURNING id
@@ -40,6 +40,7 @@ def load_batch(conn, documents: list[RecipeDocument], embeddings: np.ndarray, ba
                     doc.title,
                     json.dumps(doc.ingredients, ensure_ascii=False),
                     json.dumps(doc.ner,         ensure_ascii=False),
+                    json.dumps(doc.steps,       ensure_ascii=False),
                     doc.category,
                     doc.calories, doc.protein_g, doc.fat_g, doc.carbs_g, doc.fiber_g,
                     batch_id,
@@ -49,7 +50,7 @@ def load_batch(conn, documents: list[RecipeDocument], embeddings: np.ndarray, ba
 
             rows = psycopg2.extras.execute_values(
                 cur, SQL_INSERT_RECIPE, recipe_values,
-                template="(%s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)",
+                template="(%s, %s::jsonb, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s)",
                 fetch=True,
             )
             recipe_ids = [row[0] for row in rows]

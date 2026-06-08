@@ -126,9 +126,13 @@ de instalacion para cada paquete, util en caso de fallos puntuales.
 copy .env.example .env
 ```
 
-Los valores por defecto funcionan en una instalacion local estandar y
-coinciden con `docker-compose.yml`. Solo es necesario editar `.env` si
-se desea usar credenciales o puertos distintos.
+> **Importante:** este paso es obligatorio. Las credenciales de la base de
+> datos NO estan en el codigo fuente; tanto la aplicacion como Docker leen
+> la contrasena (`GRIA_DB_PASSWORD`) desde el fichero `.env`. Si no existe,
+> ni el contenedor ni el pipeline arrancaran.
+
+Los valores de ejemplo funcionan en una instalacion local estandar. Edita
+`.env` si quieres usar credenciales o puertos distintos.
 
 ### 4.5. Descargar los datasets
 
@@ -210,6 +214,12 @@ python -m src.etl.run_etl
 4. Crea los indices HNSW (vector coseno) y GIN (JSONB) tras la carga
 5. Ejecuta `VACUUM ANALYZE` final
 
+Durante la transformacion, los ingredientes de `ner` se **normalizan**
+(minusculas, singular, sinonimos) y se **deduplican**, y los pasos de receta
+se guardan **estructurados** en la columna `steps` (JSONB), evitando tener
+que parsear texto libre en tiempo de consulta. La normalizacion reutiliza
+el mismo modulo que la busqueda (`src/retrieval/ingredient_normalizer.py`).
+
 **Tiempo estimado:**
 - Con GPU CUDA: 30-45 minutos
 - Solo CPU: 2-4 horas
@@ -233,6 +243,32 @@ python -m src.nutrition.load_usda
 
 Tiempo estimado: 5-10 segundos. Carga 6 416 alimentos filtrados de la
 base USDA SR Legacy en la tabla `nutrition_usda`.
+
+> Si la tabla ya contiene datos, el comando se detiene para no borrarlos.
+> Para forzar la recarga usa el flag `--recreate`:
+>
+> ```powershell
+> python -m src.nutrition.load_usda --recreate
+> ```
+
+### 5.3. Validacion de calidad de datos (opcional)
+
+Tras el ETL se puede comprobar la calidad de los datos cargados:
+
+```powershell
+python -m src.etl.validate_etl
+```
+
+Informa de recetas sin pasos estructurados, `ner` vacios, duplicados dentro
+de `ner` y los ingredientes normalizados mas frecuentes.
+
+Si se dispone de una base de datos cargada con una version anterior del ETL
+(sin normalizacion ni pasos estructurados), se puede migrar sin recargar
+todo —solo actualiza `ner` y `steps`, sin recalcular embeddings—:
+
+```powershell
+python -m src.etl.migrate_etl_quality
+```
 
 ---
 
@@ -517,7 +553,21 @@ Antes de persistir, el modulo `src/retrieval/validation.py` comprueba:
 Si la validacion falla, la API devuelve `422 Unprocessable Entity`
 con la lista detallada de errores y la receta no se persiste.
 
-### 9.5. Filtrado en busquedas
+### 9.5. Comprobacion de plausibilidad culinaria
+
+Mas alla de la validacion estructural, antes de guardar una receta el
+sistema pide al modelo de lenguaje que puntue (0-10) la coherencia
+culinaria de la combinacion de ingredientes. Si la puntuacion baja del
+umbral configurado (`PLAUSIBILITY_THRESHOLD`, por defecto 4), la receta
+se rechaza y no se guarda.
+
+Esto evita que combinaciones absurdas (p. ej. chorizo con crema de
+cacao) entren en la base de datos solo por criterio del usuario. La API
+responde `422` con un mensaje explicativo y el CLI muestra el aviso. Si
+el modelo no puede evaluar, el sistema permite el guardado (fail-open)
+para no bloquear recetas legitimas por un fallo puntual.
+
+### 9.6. Filtrado en busquedas
 
 Las recetas IA aparecen en los resultados de busqueda por defecto, pero
 se marcan visualmente con un badge `[IA]` para que el usuario distinga
@@ -525,7 +575,7 @@ contenido original de contenido generado. El parametro `include_ai=false`
 en `/predict`, o el flag `--no-ai` en el CLI, las excluye de los
 resultados.
 
-### 9.6. Migracion de datos existentes
+### 9.7. Migracion de datos existentes
 
 > **Nota:** este paso NO es necesario en una instalacion desde cero. El
 > esquema que crea el ETL (`src/etl/schema.py`) ya incluye todas las
@@ -543,25 +593,73 @@ Despues de ejecutarse, las recetas que estaban marcadas con
 `etl_batch_id = -1` quedan etiquetadas como `source = 'ai_generated'`
 con sus correspondientes `dedup_hash` y `macros_known = FALSE`.
 
-### 9.7. Tests automatizados
+### 9.8. Tests automatizados
 
-Suite de pruebas con `pytest`:
+Los tests viven en la carpeta `tests/` de la raiz, organizados por modulo.
+Los unitarios no requieren PostgreSQL, Ollama ni modelos (todo se mockea);
+los de integracion se omiten automaticamente si la base de datos no esta
+disponible.
 
 ```powershell
-python -m pytest src/tests/ -v
+# Solo tests unitarios (rapidos, sin dependencias externas)
+python -m pytest -m "not integration"
+
+# Suite completa (los de integracion requieren PostgreSQL activo)
+python -m pytest
 ```
 
-- `test_validation.py`: 11 tests unitarios de las reglas de validacion
-- `test_dedup_hash.py`: 11 tests unitarios del hash de deduplicacion
-- `test_save_integration.py`: 7 tests de integracion contra PostgreSQL
-  que verifican procedencia, duplicados, validacion y persistencia
-  del embedding
+Estructura:
+
+```
+tests/
+|-- conftest.py                      Fixtures reutilizables (datos + BD simulada)
+|-- etl/
+|   `-- test_transform.py            Transformaciones Food.com -> RecipeDocument
+|-- vision/
+|   |-- test_parse_json.py           Parseo de JSON de respuestas LLM
+|   |-- test_detect_ingredients.py   Deteccion + fallback de clasificacion (mocks)
+|   `-- test_format_response.py      Formato del texto de respuesta
+|-- retrieval/
+|   |-- test_search.py               Ranking y parametros de busqueda (cursor falso)
+|   |-- test_save_generated.py       Guardado (cursor falso + embed mockeado)
+|   |-- test_validation.py           Reglas de validacion previa
+|   |-- test_dedup_hash.py           Hash de deduplicacion
+|   `-- test_save_integration.py     Integracion real contra PostgreSQL
+`-- nutrition/
+    `-- test_calculator.py           Parseo de ingredientes y conversion a gramos
+```
+
+En total, 90 tests unitarios y 7 de integracion.
 
 ---
 
-## 10. Mantenimiento y limpieza
+## 10. Evaluacion de calidad
 
-### 10.1. Detener los servicios
+GR-IA incluye un protocolo de evaluacion reproducible para medir la calidad
+de sus componentes (deteccion de ingredientes, clasificacion, recuperacion y
+generacion) mas alla de una demo puntual.
+
+El protocolo completo, los formatos de datos y la interpretacion de metricas
+estan en **[`docs/evaluation.md`](docs/evaluation.md)**.
+
+Ejecucion:
+
+```powershell
+# Evaluacion completa (genera un reporte en evaluation/reports/)
+python -m src.evaluation.run_evaluation --component all
+
+# Por componente
+python -m src.evaluation.run_evaluation --component classification
+```
+
+Cada componente se omite con un aviso si falta su recurso (Ollama, base de
+datos o imagenes), de modo que la evaluacion nunca se interrumpe por completo.
+
+---
+
+## 11. Mantenimiento y limpieza
+
+### 11.1. Detener los servicios
 
 ```powershell
 docker compose stop
@@ -569,13 +667,13 @@ docker compose stop
 
 Detiene los contenedores conservando los datos.
 
-### 10.2. Eliminar contenedores conservando datos
+### 11.2. Eliminar contenedores conservando datos
 
 ```powershell
 docker compose down
 ```
 
-### 10.3. Limpieza total (incluyendo la base de datos)
+### 11.3. Limpieza total (incluyendo la base de datos)
 
 ```powershell
 docker compose down -v
@@ -585,7 +683,7 @@ docker compose down -v
 **borra completamente la base de datos**. Tras ejecutar este comando
 es necesario volver a lanzar el ETL completo.
 
-### 10.4. Reiniciar el esquema de la base de datos sin perder Docker
+### 11.4. Reiniciar el esquema de la base de datos sin perder Docker
 
 ```powershell
 docker exec -it gria_postgres psql -U admin -d gria_db -c "DROP TABLE IF EXISTS recipe_chunks CASCADE; DROP TABLE IF EXISTS recipes CASCADE; DROP TABLE IF EXISTS nutrition_usda CASCADE;"
@@ -593,16 +691,16 @@ docker exec -it gria_postgres psql -U admin -d gria_db -c "DROP TABLE IF EXISTS 
 
 ---
 
-## 11. Referencias
+## 12. Referencias
 
-### 11.1. Datasets
+### 12.1. Datasets
 
 - **Food.com Recipes and Reviews**, irkaal et al. (Kaggle, 2021).
   https://www.kaggle.com/datasets/irkaal/foodcom-recipes-and-reviews
 - **USDA FoodData Central - SR Legacy**, U.S. Department of Agriculture (2019).
   https://fdc.nal.usda.gov
 
-### 11.2. Modelos
+### 12.2. Modelos
 
 - **MiniCPM-V**, OpenBMB.
   https://github.com/OpenBMB/MiniCPM-V
@@ -613,7 +711,7 @@ docker exec -it gria_postgres psql -U admin -d gria_db -c "DROP TABLE IF EXISTS 
 - **Helsinki-NLP/opus-mt-en-es**, University of Helsinki.
   https://huggingface.co/Helsinki-NLP/opus-mt-en-es
 
-### 11.3. Tecnologias
+### 12.3. Tecnologias
 
 - **pgvector**: https://github.com/pgvector/pgvector
 - **Ollama**: https://ollama.com

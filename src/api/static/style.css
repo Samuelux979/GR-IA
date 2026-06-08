@@ -313,6 +313,21 @@ button:disabled {
     margin-left: 0.4rem;
 }
 
+/* Nota de afinidad con escala de color (verde/naranja/rojo) */
+.grade {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 99px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.grade-alta  { background: #2c8a3d; }  /* verde  - alta correlacion  */
+.grade-media { background: #e08e0b; }  /* naranja - correlacion media */
+.grade-baja  { background: #c0392b; }  /* rojo   - baja correlacion   */
+
 /* --- Receta IA ---------------------------------------------------- */
 #ai-section {
     border-left: 3px solid var(--accent);

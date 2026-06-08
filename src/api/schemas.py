@@ -39,6 +39,8 @@ class Recipe(BaseModel):
     steps:        list[str]
     matches:      list[str]
     score:        int
+    grade:        float                                    # nota sobre 10
+    match_level:  Literal["alta", "media", "baja"] = "baja"  # color de correlacion
     distance:     float
     macros:       Macros
 

@@ -1,0 +1,8 @@
+{"ingredients": ["chicken", "onion", "garlic", "salt", "pepper"], "expected": {"main": ["chicken"], "secondary": ["onion", "garlic"], "accompaniment": [], "spices": ["salt", "pepper"]}}
+{"ingredients": ["salmon", "lemon", "dill", "olive oil"], "expected": {"main": ["salmon"], "secondary": ["olive oil"], "accompaniment": ["lemon", "dill"], "spices": []}}
+{"ingredients": ["pasta", "tomato", "basil", "parmesan", "black pepper"], "expected": {"main": ["pasta"], "secondary": ["tomato", "parmesan"], "accompaniment": ["basil"], "spices": ["black pepper"]}}
+{"ingredients": ["rice", "egg", "carrot", "soy sauce", "spring onion"], "expected": {"main": ["rice"], "secondary": ["egg", "carrot"], "accompaniment": ["spring onion"], "spices": ["soy sauce"]}}
+{"ingredients": ["beef", "potato", "carrot", "rosemary", "paprika"], "expected": {"main": ["beef"], "secondary": ["potato", "carrot"], "accompaniment": ["rosemary"], "spices": ["paprika"]}}
+{"ingredients": ["shrimp", "garlic", "parsley", "chili flakes", "lime"], "expected": {"main": ["shrimp"], "secondary": ["garlic"], "accompaniment": ["parsley", "lime"], "spices": ["chili flakes"]}}
+{"ingredients": ["tofu", "broccoli", "ginger", "sesame oil", "cumin"], "expected": {"main": ["tofu"], "secondary": ["broccoli"], "accompaniment": ["ginger"], "spices": ["sesame oil", "cumin"]}}
+{"ingredients": ["eggs", "cheese", "spinach", "nutmeg"], "expected": {"main": ["eggs"], "secondary": ["cheese", "spinach"], "accompaniment": [], "spices": ["nutmeg"]}}

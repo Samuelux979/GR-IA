@@ -1,0 +1,32 @@
+{
+  "qwen05b": {
+    "accuracy": 0.419,
+    "n_ingredients": 31,
+    "per_class": {
+      "main": 1.0,
+      "secondary": 0.308,
+      "accompaniment": 0.5,
+      "spices": 0.0
+    }
+  },
+  "qwen15b": {
+    "accuracy": 0.553,
+    "n_ingredients": 47,
+    "per_class": {
+      "main": 0.75,
+      "secondary": 0.692,
+      "accompaniment": 0.3,
+      "spices": 0.5
+    }
+  },
+  "opus": {
+    "accuracy": 0.974,
+    "n_ingredients": 38,
+    "per_class": {
+      "main": 1.0,
+      "secondary": 1.0,
+      "accompaniment": 0.875,
+      "spices": 1.0
+    }
+  }
+}

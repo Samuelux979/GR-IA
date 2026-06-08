@@ -17,6 +17,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from src.api.service import run_prediction, persist_generated_recipe
+from src.retrieval.save_generated import RecipeImplausibleError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,8 +43,9 @@ def _print_ingredients(classified: dict) -> None:
 
 def _print_recipe_card(i: int, recipe: dict) -> None:
     badge = " [IA]" if recipe.get("source") == "ai_generated" else ""
+    nivel = {"alta": "alta", "media": "media", "baja": "baja"}.get(recipe.get("match_level", ""), "")
     print("-" * 50)
-    print(f"{i}. {recipe['title']}{badge}")
+    print(f"{i}. {recipe['title']}{badge}   (afinidad: {recipe.get('grade', 0)}/10 - {nivel})")
     if recipe["matches"]:
         print(f"   Coincide con tu foto: {', '.join(recipe['matches'])}")
     print()
@@ -113,11 +115,15 @@ def run_pipeline(image_path: str, top_k: int = 5, include_ai: bool = True) -> No
             answer = "n"
 
         if answer in ("s", "si"):
-            recipe_id, was_new = persist_generated_recipe(result["ai_recipe"])
-            if was_new:
-                print(f"\nReceta guardada con id={recipe_id}.")
-            else:
-                print(f"\nReceta duplicada: ya existia con id={recipe_id}.")
+            try:
+                recipe_id, was_new = persist_generated_recipe(result["ai_recipe"])
+                if was_new:
+                    print(f"\nReceta guardada con id={recipe_id}.")
+                else:
+                    print(f"\nReceta duplicada: ya existia con id={recipe_id}.")
+            except RecipeImplausibleError as e:
+                print(f"\nNo se ha guardado: la combinacion no se considera "
+                      f"culinariamente plausible (puntuacion {e.score:.1f}/10).")
         else:
             print("\nReceta descartada.")
 

@@ -6,7 +6,7 @@ el esquema cargado. Crean recetas reales y luego las eliminan al final
 de cada test para no contaminar la BD.
 
 Ejecucion selectiva:
-    pytest src/tests/test_save_integration.py -v
+    pytest tests/retrieval/test_save_integration.py -v
 """
 
 import pytest
@@ -18,11 +18,21 @@ from src.retrieval.save_generated import (
     RecipeValidationError,
 )
 
+# Todo el modulo requiere PostgreSQL: se marca como integracion
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture(scope="module")
 def conn():
-    """Conexion a la BD reutilizada por todos los tests del modulo."""
-    c = psycopg2.connect(get_dsn())
+    """Conexion a la BD reutilizada por todos los tests del modulo.
+
+    Si PostgreSQL no esta disponible, los tests de integracion se omiten
+    (skip) en lugar de fallar: no son tests unitarios y dependen del entorno.
+    """
+    try:
+        c = psycopg2.connect(get_dsn(), connect_timeout=3)
+    except psycopg2.OperationalError:
+        pytest.skip("PostgreSQL no disponible; se omiten los tests de integracion.")
     yield c
     c.close()
 
@@ -67,7 +77,7 @@ def test_save_inserts_with_provenance(conn, recipe_factory):
     make, track = recipe_factory
     recipe = make(title="Tortilla con metadatos completos")
 
-    recipe_id, was_new = save_generated_recipe(conn, recipe)
+    recipe_id, was_new = save_generated_recipe(conn, recipe, check_plausibility=False)
     track(recipe_id)
 
     assert was_new is True
@@ -94,9 +104,9 @@ def test_save_returns_existing_id_on_duplicate(conn, recipe_factory):
     make, track = recipe_factory
     recipe = make(title="Receta duplicable")
 
-    id1, was_new1 = save_generated_recipe(conn, recipe)
+    id1, was_new1 = save_generated_recipe(conn, recipe, check_plausibility=False)
     track(id1)
-    id2, was_new2 = save_generated_recipe(conn, recipe)
+    id2, was_new2 = save_generated_recipe(conn, recipe, check_plausibility=False)
 
     assert was_new1 is True
     assert was_new2 is False
@@ -109,9 +119,9 @@ def test_dedup_ignores_case_and_whitespace(conn, recipe_factory):
     r1 = make(title="Sopa de pollo", ner=["chicken", "celery"])
     r2 = make(title="  SOPA DE POLLO ", ner=["CELERY", "chicken"])
 
-    id1, was_new1 = save_generated_recipe(conn, r1)
+    id1, was_new1 = save_generated_recipe(conn, r1, check_plausibility=False)
     track(id1)
-    id2, was_new2 = save_generated_recipe(conn, r2)
+    id2, was_new2 = save_generated_recipe(conn, r2, check_plausibility=False)
 
     assert id1 == id2
     assert was_new2 is False
@@ -119,7 +129,7 @@ def test_dedup_ignores_case_and_whitespace(conn, recipe_factory):
 
 def test_save_marks_macros_as_estimated(conn, recipe_factory):
     make, track = recipe_factory
-    recipe_id, _ = save_generated_recipe(conn, make(title="Receta con macros"))
+    recipe_id, _ = save_generated_recipe(conn, make(title="Receta con macros"), check_plausibility=False)
     track(recipe_id)
 
     with conn.cursor() as cur:
@@ -134,7 +144,7 @@ def test_save_converts_zero_macros_to_null(conn, recipe_factory):
         calories=0, protein_g=0, fat_g=0, carbs_g=0, fiber_g=0,
     )
 
-    recipe_id, _ = save_generated_recipe(conn, recipe)
+    recipe_id, _ = save_generated_recipe(conn, recipe, check_plausibility=False)
     track(recipe_id)
 
     with conn.cursor() as cur:
@@ -166,7 +176,7 @@ def test_save_rejects_invalid_recipe(conn):
 
 def test_save_creates_embedding_chunk(conn, recipe_factory):
     make, track = recipe_factory
-    recipe_id, _ = save_generated_recipe(conn, make(title="Receta con embedding"))
+    recipe_id, _ = save_generated_recipe(conn, make(title="Receta con embedding"), check_plausibility=False)
     track(recipe_id)
 
     with conn.cursor() as cur:

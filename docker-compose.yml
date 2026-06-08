@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   db:
     image: pgvector/pgvector:pg16
     container_name: gria_postgres
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: adminpassword
-      POSTGRES_DB: gria_db
+      POSTGRES_USER: ${GRIA_DB_USER:-admin}
+      POSTGRES_PASSWORD: ${GRIA_DB_PASSWORD:?Define GRIA_DB_PASSWORD en el fichero .env}
+      POSTGRES_DB: ${GRIA_DB_NAME:-gria_db}
     ports:
       - "5432:5432"
     shm_size: '256mb'
