@@ -66,12 +66,26 @@ async def predict(
     top_k: int        = Query(3, ge=1, le=20, description="Numero de recetas a recuperar"),
     generate: bool    = Query(True, description="Generar tambien una receta original con IA"),
     include_ai: bool  = Query(True, description="Incluir recetas previamente generadas por IA en la busqueda"),
+    profile: str | None  = Query(None, description="Perfil nutricional predefinido (alta_proteina, baja_caloria, ...)"),
+    max_calories: float | None = Query(None, description="Calorias maximas por receta"),
+    min_protein: float | None  = Query(None, description="Proteina minima (g) por receta"),
+    max_fat: float | None      = Query(None, description="Grasa maxima (g) por receta"),
+    min_fiber: float | None    = Query(None, description="Fibra minima (g) por receta"),
 ):
     """
     Procesa una imagen y devuelve los ingredientes detectados,
     las recetas mas relevantes de la base de datos y opcionalmente
-    una receta original generada con LLM.
+    una receta original generada con LLM. Admite filtros nutricionales
+    opcionales (perfil predefinido y/o rangos concretos de macronutrientes).
     """
+    from src.retrieval.nutrition_filters import resolve_filters
+    ranges = {
+        "calories":  (None, max_calories) if max_calories is not None else None,
+        "protein_g": (min_protein, None)  if min_protein  is not None else None,
+        "fat_g":     (None, max_fat)      if max_fat      is not None else None,
+        "fiber_g":   (min_fiber, None)    if min_fiber    is not None else None,
+    }
+    nutrition_filters = resolve_filters(profile=profile, ranges={k: v for k, v in ranges.items() if v})
     if image.content_type not in ALLOWED_TYPES:
         raise HTTPException(400, f"Formato no soportado. Permitidos: {', '.join(ALLOWED_TYPES)}")
 
@@ -95,7 +109,8 @@ async def predict(
             raise HTTPException(400, "La imagen no se puede leer o esta corrupta.")
 
         try:
-            result = run_prediction(tmp_path, top_k=top_k, generate=generate, include_ai=include_ai)
+            result = run_prediction(tmp_path, top_k=top_k, generate=generate,
+                                    include_ai=include_ai, nutrition_filters=nutrition_filters)
         except psycopg2.OperationalError:
             raise HTTPException(503, "Base de datos no disponible.")
         except httpx.HTTPError:

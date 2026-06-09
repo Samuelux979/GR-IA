@@ -43,7 +43,7 @@ WITH scored AS (
         ) AS score
     FROM recipes r
     WHERE r.ner ?| %(all_variants)s
-      AND (%(include_ai)s OR COALESCE(r.source, 'foodcom') <> 'ai_generated')
+      AND (%(include_ai)s OR COALESCE(r.source, 'foodcom') <> 'ai_generated'){nutrition}
 ),
 filtered AS (
     SELECT id, score FROM scored WHERE score >= 4
@@ -112,17 +112,22 @@ def search_recipes(
     classified: dict,
     top_k: int = 10,
     include_ai: bool = True,
+    nutrition_filters: dict | None = None,
 ) -> list[dict]:
     """
     Recupera las recetas mas relevantes usando puntuacion ponderada por nivel
     de ingrediente y similitud coseno como criterio de desempate.
 
     include_ai=False excluye recetas generadas por IA (source='ai_generated').
+    nutrition_filters acota los resultados a recetas que cumplan rangos de
+    macronutrientes ({macro: (min, max)}); no altera el orden, que sigue
+    rigiendose por el score de ingredientes.
 
     Cada ingrediente se normaliza a su forma canonica (sinonimos, espanol->ingles,
     plurales y correccion ortografica) PRESERVANDO su nivel, de modo que el
     scoring ponderado (main x8, secondary x4, ...) se mantiene intacto.
     """
+    from src.retrieval.nutrition_filters import build_sql as _build_nutrition_sql
     # Normalizacion canonica por nivel (no se aplana: conserva los pesos)
     main          = normalize_level(classified.get("main", []))
     secondary     = normalize_level(classified.get("secondary", []))
@@ -148,17 +153,26 @@ def search_recipes(
     query_text = " ".join(parts) or "Recipe with: " + ", ".join(main + secondary)
     query_vec  = embed_texts([query_text])[0].tolist()
 
+    # Filtro nutricional determinista (opcional): condiciones SQL sobre las
+    # columnas de macronutrientes. Los nombres de columna provienen de una
+    # lista controlada, por lo que el fragmento es seguro.
+    nutrition_clause, nutrition_params = _build_nutrition_sql(nutrition_filters or {})
+    sql = SQL_SEARCH.format(nutrition=nutrition_clause)
+
+    params = {
+        "main":          main_v          or [""],
+        "secondary":     secondary_v     or [""],
+        "accompaniment": accompaniment_v or [""],
+        "spices":        spices_v        or [""],
+        "all_variants":  all_variants,
+        "query_vec":     query_vec,
+        "top_k":         top_k,
+        "include_ai":    include_ai,
+    }
+    params.update(nutrition_params)
+
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(SQL_SEARCH, {
-            "main":          main_v          or [""],
-            "secondary":     secondary_v     or [""],
-            "accompaniment": accompaniment_v or [""],
-            "spices":        spices_v        or [""],
-            "all_variants":  all_variants,
-            "query_vec":     query_vec,
-            "top_k":         top_k,
-            "include_ai":    include_ai,
-        })
+        cur.execute(sql, params)
         rows = cur.fetchall()
 
     results = []

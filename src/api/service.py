@@ -89,6 +89,7 @@ def run_prediction(
     top_k: int = 3,
     generate: bool = True,
     include_ai: bool = True,
+    nutrition_filters: dict | None = None,
 ) -> dict:
     """
     Ejecuta el pipeline completo sobre una imagen y devuelve un diccionario
@@ -96,6 +97,8 @@ def run_prediction(
 
     include_ai controla si las recetas previamente generadas por IA aparecen
     en los resultados de la busqueda.
+    nutrition_filters acota las recetas recuperadas a los rangos de
+    macronutrientes indicados ({macro: (min, max)}).
     """
     classified = detect_ingredients(image_path)
 
@@ -109,13 +112,16 @@ def run_prediction(
 
     conn = psycopg2.connect(get_dsn())
     try:
-        raw_recipes = search_recipes(conn, classified, top_k=top_k, include_ai=include_ai)
+        raw_recipes = search_recipes(conn, classified, top_k=top_k,
+                                     include_ai=include_ai, nutrition_filters=nutrition_filters)
         detected    = {i.lower() for i in flatten_ingredients(classified)}
         max_score   = _max_possible_score(classified)
         recipes     = [_build_recipe_card(r, detected, max_score) for r in raw_recipes]
 
         ai_recipe = None
         warnings  = []
+        if nutrition_filters and not recipes:
+            warnings.append("Ninguna receta cumple los filtros nutricionales indicados.")
         if generate:
             ai_recipe = generate_recipe(classified, conn=conn)
             if ai_recipe is None:

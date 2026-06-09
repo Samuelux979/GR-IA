@@ -9,6 +9,9 @@ const preview    = $("preview");
 const topK       = $("top-k");
 const generate   = $("generate");
 const includeAI  = $("include-ai");
+const profile    = $("profile");
+const maxCalories = $("max-calories");
+const minProtein  = $("min-protein");
 const btn        = $("predict-btn");
 const statusBox  = $("status");
 const errorBox   = $("error");
@@ -51,6 +54,10 @@ btn.addEventListener("click", async () => {
         generate:   generate.checked,
         include_ai: includeAI.checked,
     });
+    // Filtros nutricionales opcionales
+    if (profile.value) params.append("profile", profile.value);
+    if (maxCalories.value) params.append("max_calories", maxCalories.value);
+    if (minProtein.value) params.append("min_protein", minProtein.value);
 
     try {
         const resp = await fetch(`/predict?${params}`, {

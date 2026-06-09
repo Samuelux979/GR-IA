@@ -85,9 +85,11 @@ def _print_ai_recipe(ai: dict) -> None:
     print("=" * 60)
 
 
-def run_pipeline(image_path: str, top_k: int = 5, include_ai: bool = True) -> None:
+def run_pipeline(image_path: str, top_k: int = 5, include_ai: bool = True,
+                 nutrition_filters: dict | None = None) -> None:
     logger.info("Procesando imagen: %s", image_path)
-    result = run_prediction(image_path, top_k=top_k, generate=True, include_ai=include_ai)
+    result = run_prediction(image_path, top_k=top_k, generate=True,
+                            include_ai=include_ai, nutrition_filters=nutrition_filters)
 
     if not any(result["ingredients"].values()):
         print("\n[!] No se detectaron ingredientes. Prueba con una foto mas clara.")
@@ -129,12 +131,27 @@ def run_pipeline(image_path: str, top_k: int = 5, include_ai: bool = True) -> No
 
 
 def main() -> None:
+    from src.retrieval.nutrition_filters import resolve_filters, NUTRITION_PROFILES
+
     parser = argparse.ArgumentParser(description="GR-IA: recomendacion de recetas a partir de una foto")
     parser.add_argument("--image",  required=True,       help="Ruta a la foto de ingredientes")
     parser.add_argument("--top-k",  type=int, default=5, help="Numero de recetas a recuperar")
     parser.add_argument("--no-ai",  action="store_true", help="Excluir de la busqueda recetas generadas por IA")
+    parser.add_argument("--perfil", choices=list(NUTRITION_PROFILES), default=None,
+                        help="Perfil nutricional predefinido")
+    parser.add_argument("--max-kcal", type=float, default=None, help="Calorias maximas por receta")
+    parser.add_argument("--min-prot", type=float, default=None, help="Proteina minima (g) por receta")
     args = parser.parse_args()
-    run_pipeline(args.image, top_k=args.top_k, include_ai=not args.no_ai)
+
+    ranges = {}
+    if args.max_kcal is not None:
+        ranges["calories"] = (None, args.max_kcal)
+    if args.min_prot is not None:
+        ranges["protein_g"] = (args.min_prot, None)
+    nutrition_filters = resolve_filters(profile=args.perfil, ranges=ranges)
+
+    run_pipeline(args.image, top_k=args.top_k, include_ai=not args.no_ai,
+                 nutrition_filters=nutrition_filters)
 
 
 if __name__ == "__main__":

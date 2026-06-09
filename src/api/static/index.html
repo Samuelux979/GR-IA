@@ -42,6 +42,29 @@
                 </label>
                 <button id="predict-btn" disabled>Analizar imagen</button>
             </div>
+
+            <div class="controls nutrition">
+                <span class="nutri-title">Filtro nutricional (opcional):</span>
+                <label>
+                    Perfil:
+                    <select id="profile">
+                        <option value="" selected>Sin filtro</option>
+                        <option value="alta_proteina">Alta proteína</option>
+                        <option value="baja_caloria">Baja en calorías</option>
+                        <option value="baja_grasa">Baja en grasa</option>
+                        <option value="alta_fibra">Alta en fibra</option>
+                        <option value="proteica_y_ligera">Proteica y ligera</option>
+                    </select>
+                </label>
+                <label>
+                    Máx. kcal:
+                    <input type="number" id="max-calories" min="0" step="50" placeholder="—" style="width:5rem">
+                </label>
+                <label>
+                    Mín. proteína (g):
+                    <input type="number" id="min-protein" min="0" step="5" placeholder="—" style="width:5rem">
+                </label>
+            </div>
         </section>
 
         <div id="status" hidden></div>
