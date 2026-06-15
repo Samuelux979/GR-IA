@@ -498,7 +498,6 @@ adicionales a los de una receta normal:
 |---|---|---|
 | `source` | TEXT | `'foodcom'` o `'ai_generated'` |
 | `provenance` | JSONB | metadatos de generacion (modelo, fecha, ingredientes de entrada, prompt) |
-| `dedup_hash` | TEXT | SHA-256 normalizado para deteccion de duplicados |
 | `steps` | JSONB | pasos estructurados, preservando el orden original |
 | `macros_known` | BOOLEAN | `false` indica que los macros son estimados via USDA |
 
@@ -529,9 +528,12 @@ de cualquier receta persistida en el sistema.
 
 ### 9.3. Deduplicacion
 
-El sistema calcula un hash SHA-256 a partir del titulo normalizado y los
-ingredientes NER ordenados. Si una receta equivalente ya existe en la BD,
-no se inserta de nuevo y se devuelve el `id` de la receta existente.
+Antes de insertar una receta generada, el sistema comprueba si ya existe
+otra receta de IA con el mismo nombre. La comparacion se hace sobre el
+titulo normalizado (minusculas y espacios colapsados), de modo que
+variaciones triviales como mayusculas o espacios sobrantes cuenten como la
+misma receta. Si existe, no se inserta de nuevo y se devuelve el `id` de la
+receta existente.
 
 Se consideran equivalentes recetas que solo difieren en:
 - Mayusculas / minusculas del titulo o de los ingredientes
@@ -591,7 +593,7 @@ python -m src.etl.migrate_provenance
 
 Despues de ejecutarse, las recetas que estaban marcadas con
 `etl_batch_id = -1` quedan etiquetadas como `source = 'ai_generated'`
-con sus correspondientes `dedup_hash` y `macros_known = FALSE`.
+con `macros_known = FALSE`.
 
 ### 9.8. Tests automatizados
 
@@ -623,7 +625,7 @@ tests/
 |   |-- test_search.py               Ranking y parametros de busqueda (cursor falso)
 |   |-- test_save_generated.py       Guardado (cursor falso + embed mockeado)
 |   |-- test_validation.py           Reglas de validacion previa
-|   |-- test_dedup_hash.py           Hash de deduplicacion
+|   |-- test_dedup_title.py          Normalizacion de nombre para duplicados
 |   `-- test_save_integration.py     Integracion real contra PostgreSQL
 `-- nutrition/
     `-- test_calculator.py           Parseo de ingredientes y conversion a gramos

@@ -4,7 +4,6 @@ Migracion idempotente para anadir metadatos de procedencia a la tabla recipes.
 Anade las columnas:
   - source        : 'foodcom' o 'ai_generated'
   - provenance    : JSONB con metadatos de generacion
-  - dedup_hash    : SHA-256 para deteccion de duplicados
   - steps         : JSONB con pasos estructurados
   - macros_known  : BOOLEAN, false si los valores nutricionales son estimados
 
@@ -12,8 +11,6 @@ Y migra las recetas existentes:
   - Recetas con etl_batch_id = -1 se marcan como source = 'ai_generated'
   - Sus macronutrientes pasan a NULL (los originales eran 0.0 inventados)
   - Las recetas IA reciben macros_known = FALSE
-  - Se calcula el dedup_hash de las recetas IA existentes
-  - Se crea el indice unico sobre dedup_hash
 
 El script es idempotente: si las columnas ya existen, no falla; si los
 datos ya estan migrados, no los modifica.
@@ -22,8 +19,6 @@ Uso:
     python -m src.etl.migrate_provenance
 """
 
-import hashlib
-import json
 import logging
 
 import psycopg2
@@ -36,18 +31,13 @@ logger = logging.getLogger(__name__)
 ALTER_STATEMENTS = [
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS source       TEXT DEFAULT 'foodcom';",
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS provenance   JSONB;",
-    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS dedup_hash   TEXT;",
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS steps        JSONB;",
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS macros_known BOOLEAN DEFAULT TRUE;",
+    # La deduplicacion por hash se sustituyo por comprobacion de nombre:
+    # se elimina la columna y su indice si existieran de versiones previas.
+    "DROP INDEX IF EXISTS idx_recipes_dedup_hash;",
+    "ALTER TABLE recipes DROP COLUMN IF EXISTS dedup_hash;",
 ]
-
-
-def compute_dedup_hash(title: str, ner: list) -> str:
-    """SHA-256 sobre titulo normalizado + ingredientes NER ordenados."""
-    norm_title = (title or "").strip().lower()
-    norm_ner   = sorted({(n or "").strip().lower() for n in (ner or [])})
-    payload    = norm_title + "|" + ",".join(norm_ner)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def run() -> None:
@@ -97,21 +87,6 @@ def run() -> None:
         WHERE source = 'ai_generated' AND macros_known IS DISTINCT FROM FALSE;
     """)
     logger.info("Recetas IA marcadas con macros_known=FALSE: %d", cur.rowcount)
-
-    # 5. Calcular dedup_hash de las recetas IA existentes
-    cur.execute("SELECT id, title, ner FROM recipes WHERE source = 'ai_generated' AND dedup_hash IS NULL;")
-    pending = cur.fetchall()
-    logger.info("Calculando dedup_hash de %d recetas IA existentes...", len(pending))
-    for recipe_id, title, ner in pending:
-        ner_list = ner if isinstance(ner, list) else json.loads(ner)
-        h = compute_dedup_hash(title, ner_list)
-        try:
-            cur.execute("UPDATE recipes SET dedup_hash = %s WHERE id = %s;", (h, recipe_id))
-        except psycopg2.errors.UniqueViolation:
-            # Si hubiera un duplicado preexistente, lo dejamos sin hash
-            conn.rollback()
-            logger.warning("Duplicado detectado en recipes.id=%d, hash omitido.", recipe_id)
-            continue
 
     conn.commit()
     cur.close()

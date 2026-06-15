@@ -84,18 +84,17 @@ def test_save_inserts_with_provenance(conn, recipe_factory):
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT source, provenance, dedup_hash, macros_known, steps "
+            "SELECT source, provenance, macros_known, steps "
             "FROM recipes WHERE id = %s;",
             (recipe_id,),
         )
-        source, provenance, dedup_hash, macros_known, steps = cur.fetchone()
+        source, provenance, macros_known, steps = cur.fetchone()
 
     assert source == "ai_generated"
     assert provenance["model"] == "qwen2.5:1.5b"
     assert provenance["prompt_version"] == "v1"
     assert provenance["embedding_model"] == "all-MiniLM-L6-v2"
     assert "generated_at" in provenance
-    assert dedup_hash is not None and len(dedup_hash) == 64
     assert macros_known is False           # IA -> macros siempre estimadas
     assert steps == ["Paso 1", "Paso 2"]   # pasos estructurados
 

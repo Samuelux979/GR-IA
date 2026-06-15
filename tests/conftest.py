@@ -64,8 +64,8 @@ class FakeCursor:
         self.executed.append((sql, params))
 
     def fetchone(self):
-        # Duplicado: la comprobacion previa devuelve None (no existe)
-        if "dedup_hash" in self._last_sql and "SELECT" in self._last_sql.upper():
+        # Comprobacion de duplicado por nombre previa al insert: no existe -> None
+        if "SELECT id FROM recipes" in self._last_sql:
             return None
         # INSERT ... RETURNING id -> devuelve el id generado
         if "RETURNING id" in self._last_sql:

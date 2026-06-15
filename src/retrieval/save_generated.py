@@ -3,16 +3,15 @@ Persistencia enriquecida de recetas generadas por IA.
 
 Cada receta guardada incluye:
   - source = 'ai_generated' para distinguirla del dataset original
-  - dedup_hash que identifica recetas equivalentes
   - provenance con metadatos de generacion (modelo, fecha, ingredientes input)
   - macros_known = FALSE para indicar que la nutricion es estimada via USDA
   - pasos estructurados en JSONB (no solo en chunk_text)
 
-El insert se hace de forma transaccional y deduplicada: si una receta
-equivalente ya existe se devuelve su id sin volver a insertar.
+El insert se hace de forma transaccional y deduplicada: si ya existe una
+receta generada por IA con el mismo nombre se devuelve su id sin volver a
+insertar.
 """
 
-import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -44,16 +43,12 @@ class RecipeImplausibleError(ValueError):
         self.threshold = threshold
 
 
-def compute_dedup_hash(title: str, ner: list) -> str:
+def _normalize_title(title: str) -> str:
+    """Normaliza un nombre de receta para comparar duplicados.
+    Pasa a minusculas y colapsa los espacios sobrantes, de modo que
+    'Sopa de Pollo' y '  sopa de pollo ' se consideren la misma receta.
     """
-    Calcula un hash SHA-256 que identifica recetas equivalentes.
-    Normaliza titulo y NER (minusculas, sin espacios extra, sin orden)
-    para que pequenas variaciones no generen hashes distintos.
-    """
-    norm_title = (title or "").strip().lower()
-    norm_ner   = sorted({(n or "").strip().lower() for n in (ner or []) if n})
-    payload    = norm_title + "|" + ",".join(norm_ner)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return " ".join((title or "").lower().split())
 
 
 def _build_chunk_text(title: str, ner: list, steps: list) -> str:
@@ -105,15 +100,21 @@ def save_generated_recipe(conn, recipe: dict, check_plausibility: bool = True) -
             logger.info("Receta '%s' rechazada por plausibilidad (%.1f).", title, score)
             raise RecipeImplausibleError(score, PLAUSIBILITY_THRESHOLD)
 
-    dedup_hash = compute_dedup_hash(title, ner)
-
-    # Comprobacion de duplicado antes de insertar
+    # Comprobacion de duplicado por nombre: si ya existe una receta generada
+    # por IA con el mismo titulo (normalizado), se devuelve su id sin insertar.
+    norm_title = _normalize_title(title)
     with conn.cursor() as cur:
-        cur.execute("SELECT id FROM recipes WHERE dedup_hash = %s LIMIT 1;", (dedup_hash,))
+        cur.execute(
+            "SELECT id FROM recipes "
+            "WHERE source = 'ai_generated' "
+            "AND lower(btrim(regexp_replace(title, '\\s+', ' ', 'g'))) = %s "
+            "LIMIT 1;",
+            (norm_title,),
+        )
         existing = cur.fetchone()
         if existing:
-            logger.info("Receta duplicada detectada (hash=%s), devolviendo id existente %d.",
-                        dedup_hash[:12], existing[0])
+            logger.info("Receta duplicada detectada por nombre ('%s'), "
+                        "devolviendo id existente %d.", title, existing[0])
             return existing[0], False
 
     # Macros estimadas (las que devolvio el calculador USDA en generate_recipe).
@@ -140,12 +141,12 @@ def save_generated_recipe(conn, recipe: dict, check_plausibility: bool = True) -
                 """
                 INSERT INTO recipes (
                     title, ingredients, ner, steps, category,
-                    source, provenance, dedup_hash,
+                    source, provenance,
                     calories, protein_g, fat_g, carbs_g, fiber_g,
                     macros_known, etl_batch_id
                 )
                 VALUES (%s, %s::jsonb, %s::jsonb, %s::jsonb, %s,
-                        %s, %s::jsonb, %s,
+                        %s, %s::jsonb,
                         %s, %s, %s, %s, %s,
                         %s, %s)
                 RETURNING id
@@ -158,7 +159,6 @@ def save_generated_recipe(conn, recipe: dict, check_plausibility: bool = True) -
                     "AI Generated",
                     "ai_generated",
                     json.dumps(provenance, ensure_ascii=False),
-                    dedup_hash,
                     macros["calories"], macros["protein_g"], macros["fat_g"],
                     macros["carbs_g"],  macros["fiber_g"],
                     False if not macros_known else False,  # IA -> siempre estimada
@@ -178,6 +178,5 @@ def save_generated_recipe(conn, recipe: dict, check_plausibility: bool = True) -
         logger.exception("Fallo al guardar receta IA, transaccion revertida.")
         raise
 
-    logger.info("Receta IA '%s' guardada con id=%d (hash=%s).",
-                title, recipe_id, dedup_hash[:12])
+    logger.info("Receta IA '%s' guardada con id=%d.", title, recipe_id)
     return recipe_id, True
