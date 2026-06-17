@@ -1,0 +1,90 @@
+{
+  "generated_at": "2026-06-17T15:53:46+00:00",
+  "commit": "bd7de0b",
+  "results": {
+    "ingredients": {
+      "precision": 0.833,
+      "recall": 0.694,
+      "f1": 0.758,
+      "n_cases": 6,
+      "examples": [
+        {
+          "image": "fruits.jpg",
+          "false_positives": [],
+          "false_negatives": [
+            "mint"
+          ]
+        },
+        {
+          "image": "fish_tomato_garlic.jpg",
+          "false_positives": [
+            "fennel bulb and frond",
+            "mackerel"
+          ],
+          "false_negatives": [
+            "fish",
+            "lemon"
+          ]
+        },
+        {
+          "image": "green_vegetables.jpg",
+          "false_positives": [],
+          "false_negatives": [
+            "cucumber",
+            "parsley"
+          ]
+        },
+        {
+          "image": "fresh_herbs.jpg",
+          "false_positives": [
+            "chive",
+            "fennel green",
+            "onion"
+          ],
+          "false_negatives": [
+            "dill",
+            "mint",
+            "rosemary",
+            "shallot"
+          ]
+        },
+        {
+          "image": "salmon_lemon.jpg",
+          "false_positives": [],
+          "false_negatives": [
+            "black pepper"
+          ]
+        }
+      ]
+    },
+    "classification": {
+      "accuracy": 0.553,
+      "n_ingredients": 47,
+      "per_class": {
+        "main": 0.75,
+        "secondary": 0.692,
+        "accompaniment": 0.3,
+        "spices": 0.5
+      }
+    },
+    "retrieval": {
+      "precision_at_k": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 0.99
+      },
+      "n_queries": 10
+    },
+    "generation": {
+      "n_reviewed": 9,
+      "mean_overall": 4.07,
+      "per_criterion": {
+        "uso_ingredientes": 4.11,
+        "claridad_pasos": 4.11,
+        "viabilidad": 4.11,
+        "seguridad": 4.33,
+        "utilidad": 3.67
+      }
+    }
+  }
+}
